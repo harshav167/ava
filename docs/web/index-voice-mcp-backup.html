@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>voice-mcp - Voice Mode for Claude Code</title>
+    <meta name="description" content="A Model Context Protocol (MCP) server that enables voice interactions with Claude and other LLMs through a simple, reliable interface.">
+    <style>
+        :root {
+            /* Enhanced color palette */
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #141414;
+            --bg-tertiary: #1a1a1a;
+            --bg-code: #0d0d0d;
+            
+            --text-primary: #e8e8e8;
+            --text-secondary: #999999;
+            --text-tertiary: #666666;
+            
+            --accent: #00c896;
+            --accent-hover: #00b082;
+            --accent-muted: #00c89633;
+            --accent-alt: #ff7979;
+            --accent-alt-hover: #ff6b6b;
+            
+            --border: #2a2a2a;
+            --border-subtle: #1f1f1f;
+            
+            /* Typography scale */
+            --text-xs: 0.75rem;
+            --text-sm: 0.875rem;
+            --text-base: 1rem;
+            --text-lg: 1.333rem;
+            --text-xl: 1.777rem;
+            --text-2xl: 2.369rem;
+            --text-3xl: 3.157rem;
+            
+            /* Spacing scale */
+            --space-2: 0.5rem;
+            --space-3: 0.75rem;
+            --space-4: 1rem;
+            --space-5: 1.5rem;
+            --space-6: 2rem;
+            --space-8: 3rem;
+            
+            /* Animation */
+            --transition-base: 250ms;
+            --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Ubuntu', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: var(--text-base);
+            line-height: 1.7;
+            letter-spacing: -0.011em;
+            -webkit-font-smoothing: antialiased;
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(0, 212, 170, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(255, 107, 107, 0.08) 0%, transparent 50%);
+        }
+
+        /* Subtle background texture */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                repeating-linear-gradient(
+                    0deg,
+                    transparent,
+                    transparent 2px,
+                    rgba(255, 255, 255, 0.01) 2px,
+                    rgba(255, 255, 255, 0.01) 4px
+                );
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: var(--space-6) var(--space-5);
+            position: relative;
+            z-index: 2;
+        }
+
+        header {
+            text-align: center;
+            padding: var(--space-8) 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: var(--space-8);
+            position: relative;
+        }
+
+        h1 {
+            font-size: var(--text-3xl);
+            font-weight: 300;
+            letter-spacing: -0.03em;
+            line-height: 1.1;
+            margin-bottom: var(--space-3);
+            color: var(--text-primary);
+            position: relative;
+        }
+
+        /* Terminal prompt removed - doesn't render well in practice */
+
+        .tagline {
+            color: var(--text-secondary);
+            font-size: var(--text-lg);
+            margin-bottom: var(--space-5);
+            font-family: 'Cascadia Code', 'SF Mono', monospace;
+        }
+
+        .github-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-3);
+            background-color: var(--bg-secondary);
+            border: 2px solid var(--accent);
+            border-radius: 8px;
+            padding: var(--space-3) var(--space-5);
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all var(--transition-base) var(--ease-out);
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+        }
+
+        .github-cta::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 212, 170, 0.2), transparent);
+            transition: left 0.5s;
+        }
+
+        .github-cta:hover::before {
+            left: 100%;
+        }
+
+        .github-cta:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 4px 20px var(--accent-muted);
+            border-color: var(--accent-hover);
+        }
+
+        .compatibility {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: var(--space-4);
+            margin-bottom: var(--space-6);
+            text-align: center;
+            font-size: var(--text-sm);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .compatibility::before {
+            content: '';
+            position: absolute;
+            top: -100%;
+            left: -100%;
+            width: 300%;
+            height: 300%;
+            background: linear-gradient(
+                45deg,
+                transparent 48%,
+                var(--accent-muted) 49%,
+                var(--accent-muted) 51%,
+                transparent 52%
+            );
+            animation: scan 8s linear infinite;
+        }
+
+        @keyframes scan {
+            0% { transform: translate(-30%, -30%); }
+            100% { transform: translate(30%, 30%); }
+        }
+
+        .compatibility strong {
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        section {
+            margin-bottom: var(--space-8);
+        }
+
+        .video-section {
+            margin: var(--space-8) 0;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+            background-color: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 0 40px var(--accent-muted);
+            margin-top: var(--space-5);
+        }
+
+        .video-container::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg, var(--accent), var(--accent-alt));
+            border-radius: 12px;
+            opacity: 0.5;
+            z-index: -1;
+            animation: pulse 4s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
+        }
+
+        .video-container iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border-radius: 12px;
+        }
+
+        h2 {
+            font-size: var(--text-xl);
+            font-weight: 400;
+            margin-bottom: var(--space-4);
+            color: var(--accent);
+            position: relative;
+        }
+
+        /* Comment prefix removed - doesn't render well in practice */
+
+        p {
+            margin-bottom: var(--space-4);
+            color: var(--text-secondary);
+            line-height: 1.8;
+        }
+
+        .features {
+            display: grid;
+            gap: var(--space-5);
+            margin-top: var(--space-6);
+        }
+
+        .feature {
+            background-color: var(--bg-secondary);
+            padding: var(--space-5);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            transition: all var(--transition-base) var(--ease-out);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, var(--accent), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.5s;
+        }
+
+        .feature:hover::before {
+            transform: translateX(0);
+        }
+
+        .feature h3 {
+            font-size: var(--text-lg);
+            margin-bottom: var(--space-2);
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .feature p {
+            font-size: var(--text-sm);
+            margin-bottom: 0;
+            line-height: 1.6;
+        }
+
+        .feature:hover {
+            border-color: var(--accent);
+            transform: translateX(4px);
+            box-shadow: 0 0 20px var(--accent-muted);
+        }
+
+        .code-block {
+            background-color: var(--bg-code);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: var(--space-5);
+            margin: var(--space-5) 0;
+            overflow-x: auto;
+            font-family: 'Cascadia Code', 'SF Mono', 'Monaco', 'Inconsolata', monospace;
+            font-size: var(--text-sm);
+            line-height: 1.6;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Removed decorative elements for cleaner look */
+
+        .code-block code {
+            color: var(--text-primary);
+            display: block;
+        }
+
+        .comment {
+            color: var(--text-tertiary);
+            font-style: italic;
+        }
+
+        .typing-indicator {
+            display: inline-block;
+            width: 2px;
+            height: 1.2em;
+            background: linear-gradient(var(--accent), transparent);
+            animation: blink 1s infinite;
+            vertical-align: text-bottom;
+            margin-left: 2px;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .highlight-box {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: var(--space-5);
+            margin: var(--space-6) 0;
+            position: relative;
+        }
+
+        .highlight-box h3 {
+            font-size: var(--text-lg);
+            margin-bottom: var(--space-3);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+        }
+
+        .highlight-box .label {
+            background-color: var(--accent);
+            color: var(--bg-primary);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: var(--text-xs);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            font-weight: 600;
+        }
+
+        .highlight-box p {
+            margin-bottom: var(--space-3);
+        }
+        
+        .highlight-box p a {
+            color: var(--accent);
+            text-decoration: none;
+            border-bottom: 1px dotted var(--accent);
+            transition: all var(--transition-base);
+        }
+        
+        .highlight-box p a:hover {
+            color: var(--accent-hover);
+            border-bottom-style: solid;
+        }
+
+        .highlight-box .links {
+            display: flex;
+            gap: var(--space-4);
+            flex-wrap: wrap;
+            margin-top: var(--space-3);
+        }
+
+        .links {
+            display: flex;
+            gap: var(--space-6);
+            margin-top: var(--space-6);
+            flex-wrap: wrap;
+        }
+
+        .links a, .highlight-box a {
+            color: var(--accent);
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: var(--space-2);
+            transition: all var(--transition-base);
+            position: relative;
+        }
+
+        .links a::after, .highlight-box a::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            width: 0;
+            height: 1px;
+            background-color: var(--accent);
+            transition: width var(--transition-base) var(--ease-out);
+        }
+
+        .links a:hover::after, .highlight-box a:hover::after {
+            width: 100%;
+        }
+
+        .links a:hover, .highlight-box a:hover {
+            color: var(--accent-hover);
+        }
+
+        .requirements {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: var(--space-5);
+            margin: var(--space-6) 0;
+            position: relative;
+        }
+
+        .requirements::before {
+            content: 'SYSTEM REQUIREMENTS';
+            position: absolute;
+            top: -10px;
+            left: var(--space-4);
+            background-color: var(--bg-secondary);
+            padding: 0 var(--space-2);
+            color: var(--accent);
+            font-size: var(--text-xs);
+            font-family: 'Cascadia Code', monospace;
+            letter-spacing: 0.1em;
+        }
+
+        .requirements h3 {
+            margin-bottom: var(--space-4);
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .requirements ul {
+            list-style: none;
+            color: var(--text-secondary);
+        }
+
+        .requirements li {
+            margin-bottom: var(--space-2);
+            padding-left: var(--space-5);
+            position: relative;
+        }
+
+        .requirements li::before {
+            content: '▸';
+            position: absolute;
+            left: var(--space-2);
+            color: var(--accent);
+        }
+
+        footer {
+            margin-top: var(--space-8);
+            padding-top: var(--space-6);
+            border-top: 1px solid var(--border);
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: var(--text-sm);
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Focus styles */
+        a:focus, button:focus {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        /* Reduced motion */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+
+        @media (max-width: 600px) {
+            h1 {
+                font-size: var(--text-2xl);
+            }
+            
+            
+            .container {
+                padding: var(--space-5) var(--space-4);
+            }
+            
+            .links, .highlight-box .links {
+                flex-direction: column;
+                gap: var(--space-3);
+            }
+            
+            .code-block {
+                font-size: var(--text-xs);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>voice-mcp</h1>
+            <p class="tagline">"Voice Mode for Claude Code"</p>
+            <a href="https://github.com/mbailey/voice-mcp" class="github-cta">
+                <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                </svg>
+                View on GitHub
+            </a>
+        </header>
+
+        <div class="compatibility">
+            <strong>Runs on:</strong> Linux • macOS • Windows (WSL) | <strong>Python:</strong> 3.10+ | <strong>Tested:</strong> Ubuntu 24.04 LTS, Fedora 42
+        </div>
+
+        <section>
+            <h2>Overview</h2>
+            <p>
+                A Model Context Protocol (MCP) server that enables voice interactions with Claude and other LLMs. 
+                Built for simplicity and reliability, voice-mcp provides a clean interface for adding voice capabilities 
+                to your AI workflows.
+            </p>
+        </section>
+
+        <section class="video-section">
+            <h2>See It In Action</h2>
+            <div class="video-container">
+                <iframe 
+                    src="https://www.youtube.com/embed/aXRNWvpnwVs" 
+                    title="voice-mcp Demo" 
+                    frameborder="0" 
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                    allowfullscreen>
+                </iframe>
+            </div>
+        </section>
+
+        <section>
+            <h2>Quick Start<span class="typing-indicator"></span></h2>
+            <div class="code-block">
+                <code><span class="comment"># Install and configure for Claude Code</span><br>
+claude mcp add --scope user voice-mcp uvx voice-mcp<br>
+export OPENAI_API_KEY=your-openai-key<br>
+claude<br><br>
+<span class="comment"># Try it out</span><br>
+"Can you ask me a question using voice?"</code>
+            </div>
+        </section>
+
+        <div class="highlight-box">
+            <h3>
+                <span class="label">Featured</span>
+                LiveKit Integration
+            </h3>
+            <p>
+                Enable room-based voice communication with LiveKit for distributed teams and advanced voice workflows. 
+                Perfect for multi-participant voice interactions and production deployments.
+            </p>
+            <div class="links">
+                <a href="https://livekit.io">LiveKit.io</a>
+                <a href="https://github.com/livekit/livekit">GitHub</a>
+                <a href="https://docs.livekit.io">Documentation</a>
+            </div>
+        </div>
+
+        <div class="highlight-box">
+            <h3>
+                <span class="label">Optional</span>
+                Self-Hosted ASR & TTS
+            </h3>
+            <p>
+                For complete privacy, run speech recognition and text-to-speech locally instead of using OpenAI. 
+                Both <a href="https://github.com/ggerganov/whisper.cpp">whisper.cpp</a> and <a href="https://github.com/remsky/Kokoro-FastAPI">Kokoro-FastAPI</a> provide OpenAI-compatible APIs for seamless integration.
+            </p>
+        </div>
+
+        <section>
+            <h2>Features</h2>
+            <div class="features">
+                <div class="feature">
+                    <h3>Voice Conversations</h3>
+                    <p>Natural voice interactions with Claude through your microphone and speakers</p>
+                </div>
+                <div class="feature">
+                    <h3>Multiple Transports</h3>
+                    <p>Local microphone access or LiveKit rooms for distributed voice communication</p>
+                </div>
+                <div class="feature">
+                    <h3>OpenAI Compatible</h3>
+                    <p>Works with OpenAI's API and compatible services for speech processing</p>
+                </div>
+                <div class="feature">
+                    <h3>Simple Integration</h3>
+                    <p>Clean MCP protocol implementation that works seamlessly with Claude Desktop</p>
+                </div>
+            </div>
+        </section>
+
+        <section>
+            <div class="requirements">
+                <h3>Requirements</h3>
+                <ul>
+                    <li>OpenAI API key (or self-hosted STT & TTS services)</li>
+                    <li>Microphone and speakers for voice I/O (or LiveKit)</li>
+                    <li>Python 3.8+ (handled by uvx)</li>
+                </ul>
+            </div>
+        </section>
+
+        <section>
+            <h2>Resources</h2>
+            <div class="links">
+                <a href="https://github.com/mbailey/voice-mcp">
+                    <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
+                        <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+                    </svg>
+                    GitHub Repository
+                </a>
+                <a href="https://pypi.org/project/voice-mcp/">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+                        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                        <line x1="12" y1="22.08" x2="12" y2="12"/>
+                    </svg>
+                    PyPI Package
+                </a>
+                <a href="https://github.com/mbailey/voice-mcp/issues">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    Report Issues
+                </a>
+            </div>
+        </section>
+
+        <footer>
+            <p>
+                MIT Licensed &middot; Built for the <a href="https://modelcontextprotocol.io">MCP</a> ecosystem &middot; 
+                <a href="https://github.com/mbailey/voice-mcp/actions">CI/CD Status</a>
+            </p>
+        </footer>
+    </div>
+</body>
+</html>

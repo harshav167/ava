@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Hitchhiker's Guide to Voice Mode</title>
+    <style>
+        :root {
+            /* Classic P1 phosphor green variations */
+            --h2g2-green-bright: #33FF33;
+            --h2g2-green-primary: #00FF00;
+            --h2g2-green-dim: #00CC00;
+            --h2g2-green-glow: #66FF66;
+            
+            /* Backgrounds */
+            --h2g2-bg-black: #000000;
+            --h2g2-bg-off: #0A0A0A;
+            
+            /* Additional arcade colors */
+            --h2g2-amber: #FFBB00;
+            --h2g2-cyan: #00FFFF;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--h2g2-bg-black);
+            color: var(--h2g2-green-primary);
+            font-family: 'Courier New', monospace;
+            font-weight: 400;
+            letter-spacing: 0.05em;
+            line-height: 1.4;
+            text-transform: uppercase;
+            overflow-x: hidden;
+            min-height: 100vh;
+            position: relative;
+        }
+
+        /* CRT screen effect */
+        body::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                to bottom,
+                transparent,
+                transparent 2px,
+                rgba(0, 255, 0, 0.03) 2px,
+                rgba(0, 255, 0, 0.03) 4px
+            );
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        /* Screen flicker */
+        @keyframes flicker {
+            0%, 100% { opacity: 1; }
+            95% { opacity: 0.95; }
+        }
+
+        body {
+            animation: flicker 8s infinite;
+        }
+
+        /* Container */
+        .guide-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            position: relative;
+        }
+
+        /* Don't Panic header */
+        .dont-panic {
+            text-align: center;
+            font-size: 3rem;
+            margin: 2rem 0;
+            position: relative;
+            animation: glow-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes glow-pulse {
+            0%, 100% {
+                text-shadow: 
+                    0 0 10px var(--h2g2-green-glow),
+                    0 0 20px var(--h2g2-green-glow),
+                    0 0 30px var(--h2g2-green-primary);
+            }
+            50% {
+                text-shadow: 
+                    0 0 15px var(--h2g2-green-glow),
+                    0 0 30px var(--h2g2-green-glow),
+                    0 0 45px var(--h2g2-green-primary);
+            }
+        }
+
+        /* Angular panels */
+        .guide-panel {
+            border: 2px solid var(--h2g2-green-primary);
+            background: var(--h2g2-bg-black);
+            padding: 1.5rem;
+            margin: 2rem 0;
+            position: relative;
+            clip-path: polygon(
+                0 0,
+                calc(100% - 20px) 0,
+                100% 20px,
+                100% 100%,
+                20px 100%,
+                0 calc(100% - 20px)
+            );
+        }
+
+        .guide-panel::before {
+            content: "";
+            position: absolute;
+            inset: -4px;
+            border: 1px solid var(--h2g2-green-dim);
+            opacity: 0.5;
+            pointer-events: none;
+            clip-path: polygon(
+                0 0,
+                calc(100% - 22px) 0,
+                100% 22px,
+                100% 100%,
+                22px 100%,
+                0 calc(100% - 22px)
+            );
+        }
+
+        /* Entry header */
+        .entry-header {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .entry-header::before,
+        .entry-header::after {
+            content: "";
+            flex: 1;
+            height: 2px;
+            background: var(--h2g2-green-primary);
+        }
+
+        /* Text reveal animation */
+        .reveal-text {
+            overflow: hidden;
+            display: inline-block;
+            animation: text-reveal 2s steps(50) forwards;
+        }
+
+        @keyframes text-reveal {
+            from { width: 0; }
+            to { width: 100%; }
+        }
+
+        /* Typing cursor */
+        .cursor {
+            display: inline-block;
+            width: 0.8em;
+            height: 1.2em;
+            background: var(--h2g2-green-primary);
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        /* Content sections */
+        .guide-content {
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .guide-content p {
+            margin-bottom: 1rem;
+            position: relative;
+        }
+
+        /* Code blocks */
+        .code-block {
+            background: var(--h2g2-bg-off);
+            border: 1px solid var(--h2g2-green-dim);
+            padding: 1rem;
+            margin: 1rem 0;
+            font-size: 0.85rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .code-block::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, var(--h2g2-green-glow), transparent);
+            animation: code-wipe 3s ease-in-out infinite;
+            opacity: 0.3;
+        }
+
+        @keyframes code-wipe {
+            0% { left: -100%; }
+            100% { left: 100%; }
+        }
+
+        /* Warning box */
+        .warning-box {
+            border: 2px solid var(--h2g2-amber);
+            color: var(--h2g2-amber);
+            padding: 1rem;
+            margin: 1.5rem 0;
+            text-align: center;
+            position: relative;
+            animation: warning-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes warning-pulse {
+            0%, 100% {
+                box-shadow: 
+                    0 0 10px var(--h2g2-amber),
+                    inset 0 0 10px rgba(255, 187, 0, 0.3);
+            }
+            50% {
+                box-shadow: 
+                    0 0 20px var(--h2g2-amber),
+                    inset 0 0 20px rgba(255, 187, 0, 0.5);
+            }
+        }
+
+        /* Babel fish reference */
+        .babel-fish {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            border: 1px solid var(--h2g2-cyan);
+            color: var(--h2g2-cyan);
+            margin: 2rem 0;
+            position: relative;
+        }
+
+        .babel-fish::before {
+            content: "🐟";
+            font-size: 2rem;
+            filter: hue-rotate(180deg) brightness(2);
+            animation: swim 4s ease-in-out infinite;
+        }
+
+        @keyframes swim {
+            0%, 100% { transform: translateX(0) rotate(0deg); }
+            25% { transform: translateX(5px) rotate(-5deg); }
+            75% { transform: translateX(-5px) rotate(5deg); }
+        }
+
+        /* Footer */
+        .guide-footer {
+            text-align: center;
+            margin-top: 3rem;
+            padding-top: 2rem;
+            border-top: 1px solid var(--h2g2-green-dim);
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+
+        /* Moving stars background */
+        .stars {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            overflow: hidden;
+            z-index: -1;
+        }
+
+        .star {
+            position: absolute;
+            width: 2px;
+            height: 2px;
+            background: var(--h2g2-green-dim);
+            animation: move-star linear infinite;
+        }
+
+        @keyframes move-star {
+            from { transform: translateX(0) translateY(0); }
+            to { transform: translateX(-100vw) translateY(100vh); }
+        }
+
+        /* Constant subtle animation */
+        .constant-motion {
+            animation: subtle-shake 10s ease-in-out infinite;
+        }
+
+        @keyframes subtle-shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(1px); }
+            75% { transform: translateX(-1px); }
+        }
+
+        /* Loading animation */
+        .loading {
+            opacity: 0;
+            animation: fade-in 0.5s forwards;
+        }
+
+        @keyframes fade-in {
+            to { opacity: 1; }
+        }
+
+        .loading:nth-child(1) { animation-delay: 0.1s; }
+        .loading:nth-child(2) { animation-delay: 0.3s; }
+        .loading:nth-child(3) { animation-delay: 0.5s; }
+        .loading:nth-child(4) { animation-delay: 0.7s; }
+        .loading:nth-child(5) { animation-delay: 0.9s; }
+        .loading:nth-child(6) { animation-delay: 1.1s; }
+    </style>
+</head>
+<body>
+    <!-- Moving stars background -->
+    <div class="stars" id="stars"></div>
+
+    <div class="guide-container constant-motion">
+        <h1 class="dont-panic loading">DON'T PANIC</h1>
+
+        <div class="guide-panel loading">
+            <h2 class="entry-header">VOICE MODE</h2>
+            <div class="guide-content">
+                <p><span class="reveal-text">VOICE MODE (n.): A REMARKABLY PRIMITIVE ATTEMPT BY EARTH CREATURES TO MAKE THEIR COMPUTERS UNDERSTAND THEIR BARBARIC GRUNTING NOISES. DESPITE ITS OBVIOUS INFERIORITY TO TELEPATHIC INTERFACES, IT HAS GAINED INEXPLICABLE POPULARITY AMONG CARBON-BASED LIFEFORMS.</span><span class="cursor"></span></p>
+                
+                <p>THE ENCYCLOPEDIA GALACTICA HAS THIS TO SAY ABOUT VOICE MODE: "A QUAINT TECHNOLOGY DEVELOPED ON THE UTTERLY INSIGNIFICANT PLANET EARTH, ALLOWING BIPEDAL APES TO COMMUNICATE WITH THEIR PRIMITIVE SILICON-BASED THINKING MACHINES USING VOCAL VIBRATIONS."</p>
+                
+                <p>CURIOUSLY, THIS METHOD OF INTERACTION HAS PROVEN MORE SUCCESSFUL THAN THE VOGON POETRY INTERFACE, THOUGH CONSIDERABLY LESS EFFICIENT THAN A PROPER NEURAL LINK.</p>
+            </div>
+        </div>
+
+        <div class="guide-panel loading">
+            <h2 class="entry-header">INSTALLATION PROCEDURES</h2>
+            <div class="guide-content">
+                <p>TO INSTALL VOICE MODE ON YOUR PATHETIC EARTH COMPUTER, FOLLOW THESE SIMPLE STEPS:</p>
+                
+                <div class="code-block">
+                    <p>$ PIPX INSTALL VOICE-MODE</p>
+                    <p>$ # OR FOR THE ADVENTUROUS:</p>
+                    <p>$ UV TOOL INSTALL VOICE-MODE</p>
+                </div>
+                
+                <div class="warning-box">
+                    WARNING: INSTALLATION MAY CAUSE YOUR COMPUTER TO DEVELOP OPINIONS
+                </div>
+                
+                <p>CONFIGURATION REQUIRES EDITING MYSTERIOUS FILES THAT CONTROL THE VERY FABRIC OF YOUR COMPUTATIONAL REALITY:</p>
+                
+                <div class="code-block">
+                    <p>$ VOICEMODE INSTALL</p>
+                    <p># ADDS MCP CONFIGURATION TO CLAUDE DESKTOP</p>
+                    <p># MAY RESULT IN EXISTENTIAL CRISIS</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="guide-panel loading">
+            <h2 class="entry-header">OPERATING INSTRUCTIONS</h2>
+            <div class="guide-content">
+                <p>ONCE INSTALLED, VOICE MODE ALLOWS YOU TO:</p>
+                <ul style="list-style: none; padding-left: 2rem;">
+                    <li>▸ SPEAK TO YOUR COMPUTER (IT PROBABLY WON'T UNDERSTAND)</li>
+                    <li>▸ LISTEN TO ITS RESPONSES (MONOTONE BUT FUNCTIONAL)</li>
+                    <li>▸ EXPERIENCE THE JOY OF REPEATING YOURSELF</li>
+                    <li>▸ DISCOVER NEW WAYS TO MISPRONOUNCE "HELLO COMPUTER"</li>
+                </ul>
+                
+                <p>THE SYSTEM SUPPORTS MULTIPLE TTS PROVIDERS, THOUGH NONE MATCH THE DULCET TONES OF A SIRIUS CYBERNETICS CORPORATION GENUINE PEOPLE PERSONALITY.</p>
+            </div>
+        </div>
+
+        <div class="babel-fish loading">
+            <div>
+                <p><strong>BABEL FISH COMPARISON:</strong></p>
+                <p>WHILE NOT AS ELEGANT AS THE BABEL FISH'S INSTANT TRANSLATION OF ALL LANGUAGES, VOICE MODE DOES ALLOW PRIMITIVE SPEECH RECOGNITION IN SEVERAL EARTH TONGUES. IT IS, HOWEVER, CONSIDERABLY EASIER TO INSTALL THAN INSERTING A FISH IN YOUR EAR.</p>
+            </div>
+        </div>
+
+        <div class="guide-panel loading">
+            <h2 class="entry-header">TECHNICAL SPECIFICATIONS</h2>
+            <div class="guide-content">
+                <p>VOICE MODE EMPLOYS SEVERAL EARTH TECHNOLOGIES:</p>
+                <div class="code-block">
+                    <p>▸ OPENAI WHISPER (FOR DECODING PRIMATE UTTERANCES)</p>
+                    <p>▸ VARIOUS TTS ENGINES (FOR SYNTHETIC VOCALIZATION)</p>
+                    <p>▸ LIVEKIT (FOR REAL-TIME AUDIO STREAMING)</p>
+                    <p>▸ MODEL CONTEXT PROTOCOL (FOR CLAUDE INTEGRATION)</p>
+                </div>
+                
+                <p>THE SYSTEM OPERATES AT FREQUENCIES AUDIBLE TO HUMAN EARS (20HZ-20KHZ), A RATHER LIMITED RANGE BY GALACTIC STANDARDS.</p>
+            </div>
+        </div>
+
+        <div class="guide-panel loading">
+            <h2 class="entry-header">KNOWN SIDE EFFECTS</h2>
+            <div class="guide-content">
+                <p>PROLONGED USE OF VOICE MODE MAY RESULT IN:</p>
+                <ul style="list-style: none; padding-left: 2rem;">
+                    <li>▸ UNCONTROLLABLE URGE TO TALK TO INANIMATE OBJECTS</li>
+                    <li>▸ DISAPPOINTMENT WHEN OTHER DEVICES DON'T RESPOND</li>
+                    <li>▸ GRADUAL IMPROVEMENT IN ENUNCIATION</li>
+                    <li>▸ EXISTENTIAL DEBATES WITH AI ASSISTANTS</li>
+                    <li>▸ TEMPORARY BELIEF THAT COMPUTERS UNDERSTAND YOU</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="guide-footer">
+            <p>THE HITCHHIKER'S GUIDE TO THE GALAXY IS A WHOLLY REMARKABLE BOOK</p>
+            <p>ENTRY UPDATED: STARDATE 2025.42</p>
+            <p>ACCURACY RATING: MOSTLY HARMLESS</p>
+        </div>
+    </div>
+
+    <script>
+        // Create moving stars
+        function createStars() {
+            const starsContainer = document.getElementById('stars');
+            for (let i = 0; i < 50; i++) {
+                const star = document.createElement('div');
+                star.className = 'star';
+                star.style.left = Math.random() * 100 + '%';
+                star.style.top = Math.random() * 100 + '%';
+                star.style.animationDuration = (Math.random() * 20 + 10) + 's';
+                star.style.animationDelay = Math.random() * 10 + 's';
+                starsContainer.appendChild(star);
+            }
+        }
+
+        createStars();
+
+        // Add random glitches
+        setInterval(() => {
+            if (Math.random() < 0.05) {
+                document.body.style.transform = `translateX(${Math.random() * 4 - 2}px)`;
+                setTimeout(() => {
+                    document.body.style.transform = 'translateX(0)';
+                }, 50);
+            }
+        }, 1000);
+
+        // Typing effect for first paragraph
+        const revealText = document.querySelector('.reveal-text');
+        const originalText = revealText.textContent;
+        revealText.textContent = '';
+        let index = 0;
+
+        function typeText() {
+            if (index < originalText.length) {
+                revealText.textContent += originalText[index];
+                index++;
+                setTimeout(typeText, 30);
+            }
+        }
+
+        setTimeout(typeText, 1500);
+    </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "name": "voicemode",
+  "description": "Voice interaction capabilities for AI coding assistants. Provides speech-to-text and text-to-speech via ElevenLabs, Whisper, Kokoro, and OpenAI. Enables natural voice conversations with Droid.",
+  "author": {
+    "name": "VoiceMode",
+    "email": "mike@failmode.com"
+  }
+}

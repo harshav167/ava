@@ -1,0 +1,85 @@
+name: Star Notification
+
+on:
+  watch:
+    types: [started]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch stargazer profile
+        id: profile
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fetch user profile from GitHub API
+          USER_DATA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/users/${{ github.actor }}")
+
+          # Extract profile fields
+          FOLLOWERS=$(echo "$USER_DATA" | jq -r '.followers // 0')
+          BIO=$(echo "$USER_DATA" | jq -r '.bio // "No bio"' | head -c 100)
+          COMPANY=$(echo "$USER_DATA" | jq -r '.company // ""')
+          LOCATION=$(echo "$USER_DATA" | jq -r '.location // ""')
+          PUBLIC_REPOS=$(echo "$USER_DATA" | jq -r '.public_repos // 0')
+
+          # Sanitize fields -- strip newlines and control chars to avoid GITHUB_OUTPUT format errors
+          BIO=$(echo "$BIO" | tr '\n\r' '  ' | sed 's/[[:cntrl:]]//g')
+          COMPANY=$(echo "$COMPANY" | tr '\n\r' '  ' | sed 's/[[:cntrl:]]//g')
+          LOCATION=$(echo "$LOCATION" | tr '\n\r' '  ' | sed 's/[[:cntrl:]]//g')
+
+          # Set outputs
+          echo "followers=$FOLLOWERS" >> $GITHUB_OUTPUT
+          echo "bio=$BIO" >> $GITHUB_OUTPUT
+          echo "company=$COMPANY" >> $GITHUB_OUTPUT
+          echo "location=$LOCATION" >> $GITHUB_OUTPUT
+          echo "public_repos=$PUBLIC_REPOS" >> $GITHUB_OUTPUT
+
+          # Determine priority based on follower count
+          if [ "$FOLLOWERS" -ge 500 ]; then
+            echo "priority=high" >> $GITHUB_OUTPUT
+            echo "tags=star,github,notable" >> $GITHUB_OUTPUT
+          elif [ "$FOLLOWERS" -ge 100 ]; then
+            echo "priority=default" >> $GITHUB_OUTPUT
+            echo "tags=star,github" >> $GITHUB_OUTPUT
+          else
+            echo "priority=low" >> $GITHUB_OUTPUT
+            echo "tags=star,github" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send ntfy notification
+        run: |
+          # Build notification body with profile info
+          BODY="🎉 ${{ github.actor }} just starred voicemode!
+
+          👥 Followers: ${{ steps.profile.outputs.followers }}
+          📦 Repos: ${{ steps.profile.outputs.public_repos }}"
+
+          # Add optional fields if present
+          if [ -n "${{ steps.profile.outputs.company }}" ]; then
+            BODY="$BODY
+          🏢 ${{ steps.profile.outputs.company }}"
+          fi
+
+          if [ -n "${{ steps.profile.outputs.location }}" ]; then
+            BODY="$BODY
+          📍 ${{ steps.profile.outputs.location }}"
+          fi
+
+          if [ "${{ steps.profile.outputs.bio }}" != "No bio" ]; then
+            BODY="$BODY
+
+          💬 ${{ steps.profile.outputs.bio }}"
+          fi
+
+          BODY="$BODY
+
+          ⭐ Total: ${{ github.event.repository.stargazers_count }}"
+
+          curl -H "Title: VoiceMode ⭐ New Star!" \
+               -H "Priority: ${{ steps.profile.outputs.priority }}" \
+               -H "Tags: ${{ steps.profile.outputs.tags }}" \
+               -H "Click: https://github.com/${{ github.actor }}" \
+               -d "$BODY" \
+               https://ntfy.sh/${{ secrets.NTFY_TOPIC }}

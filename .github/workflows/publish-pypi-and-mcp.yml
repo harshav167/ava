@@ -1,0 +1,123 @@
+name: Publish to PyPI and MCP Registry
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Publish target'
+        required: true
+        default: 'testpypi'
+        type: choice
+        options:
+          - testpypi
+          - pypi
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write  # Required for trusted publishing and OIDC
+      contents: read
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+    
+    - name: Build voice-mode package
+      run: python -m build
+
+    - name: Check voice-mode package
+      run: twine check dist/*
+
+    - name: Build voice-mode-install package
+      run: |
+        cd installer
+        python -m build
+
+    - name: Check voice-mode-install package
+      run: twine check installer/dist/*
+    
+    - name: Publish voice-mode to TestPyPI
+      if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      run: twine upload --repository testpypi dist/*
+
+    - name: Publish voice-mode-install to TestPyPI
+      if: github.event_name == 'workflow_dispatch' && inputs.target == 'testpypi'
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.TEST_PYPI_API_TOKEN }}
+      run: twine upload --repository testpypi installer/dist/*
+    
+    - name: Publish voice-mode to PyPI
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+      uses: pypa/gh-action-pypi-publish@release/v1
+
+    - name: Publish voice-mode-install to PyPI
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        packages-dir: installer/dist/
+    
+    # MCP Registry Publishing Steps
+    - name: Wait for PyPI availability
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+      run: |
+        echo "Waiting for package to be available on PyPI..."
+        sleep 30  # Give PyPI time to index the new package
+    
+    - name: Install Go
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.23'
+    
+    - name: Install MCP Publisher
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+      run: |
+        # Build publisher from source as per documentation
+        git clone https://github.com/modelcontextprotocol/registry publisher-repo
+        cd publisher-repo
+        make publisher
+        cp cmd/publisher/bin/mcp-publisher ../mcp-publisher
+        cd ..
+        chmod +x mcp-publisher
+    
+    - name: Authenticate with MCP Registry (DNS)
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+      env:
+        MCP_DNS_PRIVATE_KEY: ${{ secrets.MCP_DNS_PRIVATE_KEY }}
+      run: |
+        ./mcp-publisher login dns -domain failmode.com -private-key $MCP_DNS_PRIVATE_KEY
+    
+    # Alternative: Use GitHub OIDC authentication (simpler, no secrets needed)
+    # - name: Authenticate with MCP Registry (GitHub OIDC)
+    #   if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+    #   run: |
+    #     ./mcp-publisher login github-oidc
+    
+    - name: Publish to MCP Registry
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+      run: |
+        ./mcp-publisher publish
+        echo "✅ Successfully published to MCP Registry"
+    
+    - name: Verify MCP Registry Publication
+      if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || (github.event_name == 'workflow_dispatch' && inputs.target == 'pypi')
+      run: |
+        echo "Verifying publication..."
+        curl -s https://registry.modelcontextprotocol.io/servers/com.failmode/voicemode | jq '.'

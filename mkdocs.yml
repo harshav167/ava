@@ -1,0 +1,120 @@
+site_name: Voice Mode
+site_url: https://voice-mode.readthedocs.io
+site_description: Natural voice conversations for AI assistants
+site_author: Voice Mode Team
+
+repo_name: mbailey/voicemode
+repo_url: https://github.com/mbailey/voicemode
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/images/voicemode-logo.png
+  palette:
+    # Palette toggle for light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets:
+      base_path: !relative $config_dir
+  - pymdownx.superfences
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs/gen_pages.py
+  - social
+  - git-revision-date-localized:
+      enable_creation_date: true
+  - minify:
+      minify_html: true
+
+nav:
+  - Home: README.md
+  - Getting Started:
+    - Installation: tutorials/getting-started.md
+    - Configuration: guides/configuration.md
+  - Guides:
+    - Selecting Voices: guides/selecting-voices.md
+    - Pronunciation: guides/pronunciation.md
+    - MacBook Portable Mode: guides/macbook-portable.md
+    - Claude Code Plugin: guides/claude-code-plugin.md
+    - Selective Tool Loading: guides/selective-tool-loading.md
+    - Remote Access (serve): guides/serve-configuration.md
+  - VoiceMode Connect:
+    - Overview: connect/README.md
+    - Architecture: connect/architecture.md
+    - Setup:
+      - Claude Code: connect/setup/claude-code.md
+    - Reference:
+      - MCP Tools: connect/reference/mcp-tools.md
+  - Local Services:
+    - Whisper STT: guides/whisper-setup.md
+    - Kokoro TTS: guides/kokoro-setup.md
+  - Reference:
+    - CLI Commands: reference/cli.md
+    - Service Commands: reference/cli/service-commands.md
+    - Converse Parameters: reference/converse-parameters.md
+    - Environment Variables: reference/environment.md
+  - Development:
+    - Local Development: tutorials/development-setup.md
+    - Tool Loading Architecture: reference/tool-loading-architecture.md
+  - Troubleshooting:
+    - Overview: troubleshooting/index.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/mbailey/voicemode
+    - icon: fontawesome/brands/x-twitter
+      link: https://twitter.com/getvoicemode
+    - icon: fontawesome/brands/discord
+      link: https://discord.gg/Hm7dF3uCfG
+    - icon: fontawesome/brands/youtube
+      link: https://youtube.com/@getvoicemode
+
+copyright: Copyright &copy; 2025 Voice Mode - A Failmode Project

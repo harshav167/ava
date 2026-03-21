@@ -1,0 +1,77 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Extract version from tag
+      id: version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+    
+    - name: Generate release notes
+      id: notes
+      run: |
+        echo "NOTES<<EOF" >> $GITHUB_OUTPUT
+        
+        # Extract release notes from CHANGELOG.md for this version
+        VERSION="${{ steps.version.outputs.VERSION }}"
+        
+        # Use awk to extract the section for this version
+        awk -v ver="$VERSION" '
+          /^## \[/ {
+            if (found) exit
+            if ($0 ~ "\\[" ver "\\]") found=1
+            next
+          }
+          found && /^## \[/ { exit }
+          found { print }
+        ' CHANGELOG.md >> $GITHUB_OUTPUT
+        
+        echo "" >> $GITHUB_OUTPUT
+        echo "## Installation" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### Quick Start (Recommended)" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo '```bash' >> $GITHUB_OUTPUT
+        echo "# Install UV package manager (if not already installed)" >> $GITHUB_OUTPUT
+        echo "curl -LsSf https://astral.sh/uv/install.sh | sh" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "# Install VoiceMode and configure services" >> $GITHUB_OUTPUT
+        echo "uvx voice-mode-install" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "# Add to Claude Code MCP" >> $GITHUB_OUTPUT
+        echo "claude mcp add --scope user voicemode -- uvx --refresh voice-mode" >> $GITHUB_OUTPUT
+        echo '```' >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "### Alternative: Direct Installation" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo '```bash' >> $GITHUB_OUTPUT
+        echo "# With UV" >> $GITHUB_OUTPUT
+        echo "uv tool install voice-mode" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "# With pip" >> $GITHUB_OUTPUT
+        echo "pip install voice-mode==${{ steps.version.outputs.VERSION }}" >> $GITHUB_OUTPUT
+        echo '```' >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "For detailed documentation, visit https://getvoicemode.com" >> $GITHUB_OUTPUT
+        echo "" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref }}
+        name: Release v${{ steps.version.outputs.VERSION }}
+        body: ${{ steps.notes.outputs.NOTES }}
+        draft: false
+        prerelease: false

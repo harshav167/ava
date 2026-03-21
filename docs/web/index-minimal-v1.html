@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Mode</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #0a0a0a;
+            color: #b0b0b0;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+
+        .header {
+            margin-bottom: 60px;
+            text-align: center;
+        }
+
+        .ascii-logo {
+            color: #00ff00;
+            font-size: 10px;
+            line-height: 1.2;
+            white-space: pre;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #ffffff;
+            font-size: 24px;
+            font-weight: normal;
+            margin-bottom: 10px;
+        }
+
+        .tagline {
+            color: #808080;
+            font-size: 12px;
+        }
+
+        .nav {
+            margin-bottom: 40px;
+            border-top: 1px solid #333;
+            border-bottom: 1px solid #333;
+            padding: 15px 0;
+        }
+
+        .nav-item {
+            display: inline-block;
+            margin-right: 20px;
+            color: #00ff00;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .nav-item:hover {
+            color: #ffffff;
+            text-decoration: underline;
+        }
+
+        .section {
+            margin-bottom: 40px;
+            display: none;
+        }
+
+        .section.active {
+            display: block;
+        }
+
+        .section-header {
+            color: #00ff00;
+            font-size: 16px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .code-block {
+            background: #1a1a1a;
+            border: 1px solid #333;
+            padding: 15px;
+            margin: 15px 0;
+            overflow-x: auto;
+            color: #d0d0d0;
+        }
+
+        .comment {
+            color: #606060;
+        }
+
+        .command {
+            color: #00ff00;
+        }
+
+        .prompt {
+            color: #808080;
+        }
+
+        .output {
+            color: #b0b0b0;
+        }
+
+        a {
+            color: #00ff00;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .footer {
+            margin-top: 60px;
+            padding-top: 20px;
+            border-top: 1px solid #333;
+            text-align: center;
+            color: #606060;
+            font-size: 12px;
+        }
+
+        .blink {
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+
+        .feature-list {
+            list-style: none;
+            padding-left: 20px;
+        }
+
+        .feature-list li:before {
+            content: "→ ";
+            color: #00ff00;
+            margin-right: 10px;
+        }
+
+        .status {
+            color: #00ff00;
+            font-size: 12px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <pre class="ascii-logo">
+╔╗  ╔╗      ╔╗          ╔═╗      ╔═╗
+║╚╗╔╝║      ║║          ║ ╚╗    ╔╝ ║
+╚╗║║╔╝╔══╗╔╗║║╔══╗  ╔══╗║  ╚╗  ╔╝  ║╔══╗╔══╗║╔══╗
+ ║╚╝║ ║  ║║║║╚╝  ║  ║══╣║   ╚╗╔╝   ║║  ║║  ║║║  ║
+ ║  ║ ║╔╗║║║║╔╗  ║  ║  ║║    ║║    ║║╔╗║║╔╗║║║╔═╝
+ ╚╗╔╝ ╚╝╚╝╚╝╚╝╚══╝  ╚══╝╚═╗  ╚╝  ╔═╝╚╝╚╝╚╝╚╝╚╝╚══╗
+  ╚╝                      ╔╝      ╚═╗            ╔═╝
+                          ╚═══════╝ ╚═══════════╝</pre>
+            <h1>Voice Mode</h1>
+            <p class="tagline">Natural voice conversations for AI assistants via MCP</p>
+        </header>
+
+        <div class="status">
+            <span class="prompt">$</span> <span class="command">voice-mode --status</span><br>
+            <span class="output">[OK] Service running on stdio</span><span class="blink">_</span>
+        </div>
+
+        <nav class="nav">
+            <a href="#about" class="nav-item" onclick="showSection('about')">./about</a>
+            <a href="#install" class="nav-item" onclick="showSection('install')">./install</a>
+            <a href="#demo" class="nav-item" onclick="showSection('demo')">./demo</a>
+            <a href="#docs" class="nav-item" onclick="showSection('docs')">./docs</a>
+        </nav>
+
+        <section id="about" class="section active">
+            <h2 class="section-header">// About</h2>
+            <p>Voice Mode brings human-like voice interactions to Claude, ChatGPT, and other LLMs through the Model Context Protocol (MCP).</p>
+            
+            <div class="code-block">
+                <span class="comment"># Features</span><br>
+                <ul class="feature-list">
+                    <li>Voice conversations with Claude - ask questions and hear responses</li>
+                    <li>Multiple transports - local microphone or LiveKit room-based communication</li>
+                    <li>OpenAI-compatible - works with any STT/TTS service (local or cloud)</li>
+                    <li>Real-time - low-latency voice interactions with automatic transport selection</li>
+                    <li>MCP Integration - seamless with Claude Desktop and other MCP clients</li>
+                </ul>
+            </div>
+
+            <p>Compatible with Linux, macOS, Windows (WSL) | Python 3.10+</p>
+        </section>
+
+        <section id="install" class="section">
+            <h2 class="section-header">// Installation</h2>
+            
+            <div class="code-block">
+                <span class="comment"># Quick install with Claude Code (recommended)</span><br>
+                <span class="prompt">$</span> <span class="command">claude mcp add --scope user voice-mode uvx voice-mode</span><br>
+                <br>
+                <span class="comment"># Or install with UV</span><br>
+                <span class="prompt">$</span> <span class="command">uvx voice-mode</span><br>
+                <br>
+                <span class="comment"># Or install with pip</span><br>
+                <span class="prompt">$</span> <span class="command">pip install voice-mode</span>
+            </div>
+
+            <div class="code-block">
+                <span class="comment"># Set your OpenAI API key</span><br>
+                <span class="prompt">$</span> <span class="command">export OPENAI_API_KEY=your-openai-key</span><br>
+                <br>
+                <span class="comment"># Start Claude with Voice Mode</span><br>
+                <span class="prompt">$</span> <span class="command">claude</span><br>
+                <span class="output">Claude: Ready for voice interaction</span><br>
+                <span class="prompt">></span> <span class="command">/converse</span>
+            </div>
+        </section>
+
+        <section id="demo" class="section">
+            <h2 class="section-header">// Quick Demo</h2>
+            
+            <div class="code-block">
+                <span class="comment"># Example conversation</span><br>
+                <span class="prompt">></span> <span class="command">"Let's have a voice conversation"</span><br>
+                <span class="output">[Voice Mode] Speaking: "Hello! I'm ready to chat..."</span><br>
+                <span class="output">[Voice Mode] Listening...</span><br>
+                <br>
+                <span class="prompt">></span> <span class="command">"Tell me a joke"</span><br>
+                <span class="output">[Voice Mode] Claude speaks and waits for your response</span><br>
+                <br>
+                <span class="prompt">></span> <span class="command">"Say goodbye"</span><br>
+                <span class="output">[Voice Mode] Claude speaks without waiting</span>
+            </div>
+
+            <p>Watch the <a href="https://www.youtube.com/watch?v=aXRNWvpnwVs" target="_blank">demo video</a> to see Voice Mode in action.</p>
+        </section>
+
+        <section id="docs" class="section">
+            <h2 class="section-header">// Documentation</h2>
+            
+            <div class="code-block">
+                <span class="comment"># Available tools</span><br>
+                converse()          <span class="comment"># Have a voice conversation</span><br>
+                listen_for_speech() <span class="comment"># Listen and convert to text</span><br>
+                check_room_status() <span class="comment"># Check LiveKit room status</span><br>
+                check_audio_devices() <span class="comment"># List audio devices</span><br>
+                start_kokoro()      <span class="comment"># Start local TTS service</span><br>
+                stop_kokoro()       <span class="comment"># Stop local TTS service</span><br>
+                kokoro_status()     <span class="comment"># Check Kokoro TTS status</span>
+            </div>
+
+            <div class="code-block">
+                <span class="comment"># Optional configuration</span><br>
+                <span class="command">STT_BASE_URL</span>=http://127.0.0.1:2022/v1  <span class="comment"># Local Whisper</span><br>
+                <span class="command">TTS_BASE_URL</span>=http://127.0.0.1:8880/v1  <span class="comment"># Local TTS</span><br>
+                <span class="command">TTS_VOICE</span>=alloy                        <span class="comment"># Voice selection</span><br>
+                <span class="command">VOICE_MODE_DEBUG</span>=true                   <span class="comment"># Enable debug mode</span><br>
+                <span class="command">VOICE_MODE_SAVE_AUDIO</span>=true              <span class="comment"># Save audio files</span>
+            </div>
+
+            <p>Full documentation at <a href="https://github.com/mbailey/voicemode" target="_blank">github.com/mbailey/voicemode</a></p>
+        </section>
+
+        <footer class="footer">
+            <p>Voice Mode | <a href="https://getvoicemode.com">getvoicemode.com</a> | <a href="https://github.com/mbailey/voicemode">GitHub</a> | <a href="https://discord.gg/gVHPPK5U">Discord</a></p>
+            <p>MIT License | A <a href="https://failmode.com">Failmode</a> Project</p>
+        </footer>
+    </div>
+
+    <script>
+        function showSection(sectionId) {
+            // Hide all sections
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+            });
+            
+            // Show selected section
+            document.getElementById(sectionId).classList.add('active');
+            
+            // Update URL hash
+            window.location.hash = sectionId;
+        }
+
+        // Handle initial load with hash
+        window.addEventListener('load', () => {
+            const hash = window.location.hash.substring(1);
+            if (hash && document.getElementById(hash)) {
+                showSection(hash);
+            }
+        });
+
+        // Terminal cursor effect in status
+        setInterval(() => {
+            const cursor = document.querySelector('.blink');
+            if (cursor) {
+                cursor.style.visibility = cursor.style.visibility === 'hidden' ? 'visible' : 'hidden';
+            }
+        }, 500);
+    </script>
+</body>
+</html>

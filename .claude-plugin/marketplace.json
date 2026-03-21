@@ -1,0 +1,38 @@
+{
+  "name": "voicemode",
+  "metadata": {
+    "description": "VoiceMode - Voice conversations for Claude Code",
+    "version": "1.1.0"
+  },
+  "owner": {
+    "name": "VoiceMode",
+    "email": "hello@voicemode.dev"
+  },
+  "plugins": [
+    {
+      "name": "voicemode",
+      "description": "Voice conversations with Claude Code using local speech-to-text and text-to-speech. Includes support for remote agents via mobile, web and CLI.",
+      "author": {
+        "name": "Mike Bailey",
+        "email": "mike@voicemode.dev"
+      },
+      "source": "./",
+      "category": "productivity",
+      "homepage": "https://github.com/mbailey/voicemode"
+    },
+    {
+      "name": "show-me",
+      "description": "Visual context sharing between AI and users - display files/URLs/commands with 'show', observe screen context with 'look'",
+      "author": {
+        "name": "Mike Bailey",
+        "email": "mike@voicemode.dev"
+      },
+      "source": {
+        "source": "url",
+        "url": "https://github.com/mbailey/show-me.git"
+      },
+      "category": "productivity",
+      "homepage": "https://github.com/mbailey/show-me"
+    }
+  ]
+}

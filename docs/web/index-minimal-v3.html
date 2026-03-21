@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOICE MODE BBS v3.0</title>
+    <style>
+        @font-face {
+            font-family: 'DOS';
+            src: url('data:font/woff2;base64,d09GMgABAAAAAAKgAA0AAAAAB8AAAAJOAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAABmAAgkIKgmSCFgsGAAE2AiQDCAQgBQYHLBttA8geh7HbZEkXzVA+8hE8v9bK9/v7cMBIgJBqYiTZU2BNROgoCXWqVuUE2BwBVW/MzP5tBnMHQBUoKVRwoUFUhQcYNsjQTu9kcnoiCbVFAQYeaIDnGgZ0S7B5wBd8r5NxDXQyP5xsjbbJpEBoIchBjmP5ISNVN8nZGxf/gvhmmJMklQKI3gBYub2pwnMrWhEvmkW8sAYBsQqMFShQYKQASxQCI2VjkWVBK5oGW9E0YwkgytCLBZRRxm4cAGSQ5JyHjhw5smupR97WtVRdf7j1bejF9kejzg65MORid3Mj9cxgq/oGX47bCL48FbYOuhQ2D7pc31v27HA5bTl0uTEXe7mKj8evnfFg9OmxRydXh12qdrE+F3c8HLfhyBXquL6hcxevnmqsqg24ODitGXCBqw69VBXeuIuxR6dsuha7cOiletCleuhF7m/dez9uL869qL0zfHaPunMGJVXdp6urru7eLbu9K7vde6JlW7duC7dJlQvgcCGDuGWfrEP5H8qtPuFRd+dPrN5b3T2xevJzT1++gJKT6n+tGyMlBwIcLGqZgn1aGzPE9z/r3/h3z1eBQPBu5P5v+/ZY8ru6SwJfH//S0DQvSarrqEogKCY2E+1JIBEAgBTHjU8QSDbLoDKJnC4kiUjV/asPHJo0+RgAAAA=') format('woff2');
+            font-weight: normal;
+            font-style: normal;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: #000084; /* CGA Dark Blue */
+            color: #AAAAAA; /* CGA Light Gray */
+            font-family: 'Courier New', 'DOS', monospace;
+            font-size: 14px;
+            line-height: 1.2;
+            overflow-x: hidden;
+            cursor: crosshair;
+        }
+
+        /* CGA Colors */
+        .black { color: #000000; }
+        .dark-blue { color: #0000AA; }
+        .dark-green { color: #00AA00; }
+        .dark-cyan { color: #00AAAA; }
+        .dark-red { color: #AA0000; }
+        .dark-magenta { color: #AA00AA; }
+        .brown { color: #AA5500; }
+        .light-gray { color: #AAAAAA; }
+        .dark-gray { color: #555555; }
+        .bright-blue { color: #5555FF; }
+        .bright-green { color: #55FF55; }
+        .bright-cyan { color: #55FFFF; }
+        .bright-red { color: #FF5555; }
+        .bright-magenta { color: #FF55FF; }
+        .yellow { color: #FFFF55; }
+        .white { color: #FFFFFF; }
+
+        .container {
+            max-width: 80ch;
+            margin: 0 auto;
+            padding: 0;
+            background: #000000;
+            min-height: 100vh;
+        }
+
+        /* Header with ANSI art */
+        .header {
+            background: #000000;
+            color: #55FFFF;
+            padding: 2ch;
+            text-align: center;
+            border-bottom: 1px solid #AAAAAA;
+        }
+
+        .ansi-logo {
+            font-size: 10px;
+            line-height: 1;
+            white-space: pre;
+            color: #55FF55;
+            margin-bottom: 1ch;
+        }
+
+        /* BBS style box */
+        .box {
+            border: 1px solid #AAAAAA;
+            margin: 1ch;
+            background: #000000;
+        }
+
+        .box-header {
+            background: #0000AA;
+            color: #FFFF55;
+            padding: 0 1ch;
+            display: inline-block;
+            position: relative;
+            top: -0.5ch;
+            left: 2ch;
+        }
+
+        .box-content {
+            padding: 1ch 2ch;
+            margin-top: -0.5ch;
+        }
+
+        /* Navigation */
+        .nav {
+            background: #AA0000;
+            color: #FFFFFF;
+            padding: 1ch 0;
+            text-align: center;
+            border-bottom: 1px solid #FFFFFF;
+        }
+
+        .nav-item {
+            display: inline-block;
+            padding: 0 2ch;
+            cursor: pointer;
+            text-decoration: none;
+            color: #FFFFFF;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            background: #FFFF55;
+            color: #000000;
+        }
+
+        /* Content sections */
+        .page {
+            display: none;
+            padding: 2ch;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        h2 {
+            color: #55FF55;
+            border-bottom: 1px dashed #55FF55;
+            padding-bottom: 0.5ch;
+            margin-bottom: 1ch;
+            text-transform: uppercase;
+        }
+
+        p {
+            margin-bottom: 1ch;
+            color: #AAAAAA;
+        }
+
+        /* Code blocks */
+        .code-block {
+            background: #000084;
+            border: 1px solid #5555FF;
+            padding: 1ch;
+            margin: 1ch 0;
+            color: #55FFFF;
+            overflow-x: auto;
+        }
+
+        .code-header {
+            color: #FFFF55;
+            margin-bottom: 0.5ch;
+        }
+
+        /* Features */
+        .feature {
+            margin-bottom: 1ch;
+            padding-left: 2ch;
+        }
+
+        .feature-name {
+            color: #FF55FF;
+            display: inline;
+        }
+
+        .feature-desc {
+            color: #AAAAAA;
+            display: inline;
+            margin-left: 1ch;
+        }
+
+        /* Links */
+        a {
+            color: #55FFFF;
+            text-decoration: none;
+        }
+
+        a:hover {
+            background: #55FFFF;
+            color: #000000;
+        }
+
+        /* Footer */
+        .footer {
+            border-top: 1px solid #AAAAAA;
+            padding: 2ch;
+            text-align: center;
+            color: #555555;
+            margin-top: 4ch;
+        }
+
+        /* Blinking cursor */
+        .cursor {
+            animation: blink 1s infinite;
+            color: #55FF55;
+        }
+
+        @keyframes blink {
+            0%, 49% { opacity: 1; }
+            50%, 100% { opacity: 0; }
+        }
+
+        /* Status line */
+        .status-line {
+            background: #AAAAAA;
+            color: #000000;
+            padding: 0.5ch 2ch;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 12px;
+        }
+
+        /* ASCII Table */
+        .ascii-table {
+            white-space: pre;
+            color: #55FF55;
+            font-size: 12px;
+            line-height: 1;
+        }
+
+        /* Retro effects */
+        .scanlines::before {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                transparent,
+                transparent 2px,
+                rgba(0, 0, 0, 0.1) 2px,
+                rgba(0, 0, 0, 0.1) 4px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        /* Connection animation */
+        .connecting {
+            color: #FFFF55;
+            margin: 2ch;
+            font-size: 12px;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60% { content: '...'; }
+            80%, 100% { content: ''; }
+        }
+
+        .dots::after {
+            content: '';
+            animation: dots 2s infinite;
+        }
+
+        /* Mobile adjustments */
+        @media (max-width: 640px) {
+            body {
+                font-size: 12px;
+            }
+            
+            .ansi-logo {
+                font-size: 8px;
+            }
+            
+            .container {
+                max-width: 100%;
+            }
+        }
+    </style>
+</head>
+<body class="scanlines">
+    <div class="container">
+        <header class="header">
+            <pre class="ansi-logo">
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  ██╗   ██╗ ██████╗ ██╗ ██████╗███████╗    ███╗   ███╗ ██████╗ ██████╗ ███████╗║
+║  ██║   ██║██╔═══██╗██║██╔════╝██╔════╝    ████╗ ████║██╔═══██╗██╔══██╗██╔════╝║
+║  ██║   ██║██║   ██║██║██║     █████╗      ██╔████╔██║██║   ██║██║  ██║█████╗  ║
+║  ╚██╗ ██╔╝██║   ██║██║██║     ██╔══╝      ██║╚██╔╝██║██║   ██║██║  ██║██╔══╝  ║
+║   ╚████╔╝ ╚██████╔╝██║╚██████╗███████╗    ██║ ╚═╝ ██║╚██████╔╝██████╔╝███████╗║
+║    ╚═══╝   ╚═════╝ ╚═╝ ╚═════╝╚══════╝    ╚═╝     ╚═╝ ╚═════╝ ╚═════╝ ╚══════╝║
+╚══════════════════════════════════════════════════════════════════════════════╝</pre>
+            <div class="bright-cyan">[ NATURAL VOICE CONVERSATIONS FOR AI ASSISTANTS VIA MCP ]</div>
+            <div class="yellow">BBS v3.0 | DIAL-UP: 1-800-VOICE | 2400 BAUD SUPPORTED</div>
+        </header>
+
+        <nav class="nav">
+            <a href="#manifest" class="nav-item active" onclick="showPage('manifest')">[F1] MANIFEST</a>
+            <a href="#specification" class="nav-item" onclick="showPage('specification')">[F2] TECH SPECS</a>
+            <a href="#implementation" class="nav-item" onclick="showPage('implementation')">[F3] DOWNLOAD</a>
+            <a href="#operation" class="nav-item" onclick="showPage('operation')">[F4] OPERATION</a>
+        </nav>
+
+        <div class="connecting">
+            <span class="bright-green">ATDT 1-800-VOICE-MODE</span><br>
+            <span class="yellow">CONNECT 2400</span><br>
+            <span class="bright-cyan">Welcome to VOICE MODE BBS <span class="dots"></span></span>
+        </div>
+
+        <div id="manifest" class="page active">
+            <div class="box">
+                <div class="box-header">═[ SYSTEM MANIFESTO ]═</div>
+                <div class="box-content">
+                    <pre class="bright-green">
+VOICE IS THE MOST NATURAL HUMAN INTERFACE.
+CODE SHOULD SPEAK.
+CODE SHOULD LISTEN.
+                    </pre>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ THESIS ]═</div>
+                <div class="box-content">
+                    <p>Voice Mode transforms AI assistants from text-based tools into conversational partners. Through the Model Context Protocol, we enable Claude, ChatGPT, and other LLMs to engage in natural voice interactions.</p>
+                    <p class="bright-cyan">No more typing. No more reading. Just conversation.</p>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ CORE PRINCIPLES ]═</div>
+                <div class="box-content">
+                    <div class="feature">
+                        <span class="feature-name">■ UNIVERSALITY:</span>
+                        <span class="feature-desc">Works with any MCP-compatible client. No vendor lock-in.</span>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-name">■ SIMPLICITY:</span>
+                        <span class="feature-desc">One command to install. One command to run. Zero configuration.</span>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-name">■ LOCALITY:</span>
+                        <span class="feature-desc">Your voice never leaves your machine unless you choose cloud.</span>
+                    </div>
+                    <div class="feature">
+                        <span class="feature-name">■ OPENNESS:</span>
+                        <span class="feature-desc">MIT licensed. Fork it. Modify it. Make it yours.</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ SYSTEM ARCHITECTURE ]═</div>
+                <div class="box-content">
+                    <pre class="ascii-table">
+┌─────────────────────────────────────────────────────────────────┐
+│                        TRANSPORT LAYER                          │
+├─────────────────────────────────────────────────────────────────┤
+│ LOCAL MIC ──▶ AUDIO CAPTURE ──▶ STT SERVICE ──▶ TEXT          │
+│ SPEAKER  ◀── AUDIO SYNTH   ◀── TTS SERVICE ◀── TEXT          │
+├─────────────────────────────────────────────────────────────────┤
+│                        PROTOCOL LAYER                           │
+├─────────────────────────────────────────────────────────────────┤
+│ MCP CLIENT ◀──▶ VOICE MODE SERVER ◀──▶ OPENAI-COMPATIBLE API  │
+├─────────────────────────────────────────────────────────────────┤
+│                        SERVICE LAYER                            │
+├─────────────────────────────────────────────────────────────────┤
+│ WHISPER.CPP (STT) │ KOKORO (TTS) │ LIVEKIT (RTC)             │
+└─────────────────────────────────────────────────────────────────┘
+                    </pre>
+                </div>
+            </div>
+        </div>
+
+        <div id="specification" class="page">
+            <div class="box">
+                <div class="box-header">═[ SYSTEM REQUIREMENTS ]═</div>
+                <div class="box-content">
+                    <div class="code-block">
+                        <div class="code-header">MINIMUM CONFIGURATION:</div>
+PLATFORM.....: Linux, macOS, Windows (WSL)
+RUNTIME......: Python 3.10+
+MEMORY.......: 512MB minimum
+NETWORK......: Internet connection (for cloud services)
+SOUND CARD...: SoundBlaster compatible
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ DEPENDENCIES ]═</div>
+                <div class="box-content">
+                    <div class="code-block">
+pyaudio............>= 0.2.11
+openai............. >= 1.0.0
+mcp................ >= 1.0.0
+livekit............ >= 0.17.5 (optional)
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ API COMPATIBILITY ]═</div>
+                <div class="box-content">
+                    <div class="code-block">
+STT.......: OpenAI Whisper API v1
+TTS.......: OpenAI TTS API v1
+PROTOCOL..: Model Context Protocol 2024.11
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ AVAILABLE TOOLS ]═</div>
+                <div class="box-content">
+                    <div class="code-block">
+converse(message, wait_for_response=True)
+listen_for_speech(duration=15.0)
+check_room_status()
+check_audio_devices()
+voice_status()
+list_tts_voices(provider=None)
+kokoro_start(models_dir=None)
+kokoro_stop()
+kokoro_status()
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ ENVIRONMENT VARIABLES ]═</div>
+                <div class="box-content">
+                    <div class="code-block">
+OPENAI_API_KEY          # Required for cloud services
+STT_BASE_URL            # Custom STT endpoint
+STT_API_KEY             # STT authentication
+STT_MODEL               # Whisper model selection
+TTS_BASE_URL            # Custom TTS endpoint
+TTS_API_KEY             # TTS authentication
+TTS_MODEL               # TTS model selection
+TTS_VOICE               # Voice selection
+VOICE_MODE_DEBUG         # Enable debug logging
+VOICE_MODE_SAVE_AUDIO    # Save audio files
+VOICE_MODE_AUDIO_DIR     # Audio save directory
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="implementation" class="page">
+            <div class="box">
+                <div class="box-header">═[ DOWNLOAD CENTER ]═</div>
+                <div class="box-content">
+                    <p class="bright-cyan">Select your preferred installation method:</p>
+                    <div class="code-block">
+                        <div class="code-header">[1] CLAUDE CODE (RECOMMENDED)</div>
+$ claude mcp add --scope user voice-mode uvx voice-mode
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">[2] UV PACKAGE MANAGER</div>
+$ uvx voice-mode
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">[3] PYTHON PIP</div>
+$ pip install voice-mode
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ LOCAL VOICE STACK ]═</div>
+                <div class="box-content">
+                    <p class="yellow">Run everything on your machine. No cloud dependencies.</p>
+                    <div class="code-block">
+                        <div class="code-header">WHISPER.CPP (PORT 2022)</div>
+$ make whisper-start
+Local speech-to-text with OpenAI-compatible API
+CPU optimized with AVX/NEON support
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">KOKORO TTS (PORT 8880)</div>
+$ make kokoro-start
+Local text-to-speech with multiple voice options
+Zero-shot voice cloning capable
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">LIVEKIT (PORT 7880)</div>
+$ make livekit-start
+Real-time communication for room-based voice
+WebRTC powered, low latency
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ INTEGRATION GUIDE ]═</div>
+                <div class="box-content">
+                    <div class="code-block">
+                        <div class="code-header">CLAUDE DESKTOP</div>
+1. Install Voice Mode via Claude Code
+2. Start Claude Desktop application
+3. Use /converse command in chat
+4. Speak naturally when prompted
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">CUSTOM MCP CLIENT</div>
+1. Add voice-mode to MCP server list
+2. Configure transport (stdio/sse)
+3. Call voice tools via MCP protocol
+4. Handle audio streams appropriately
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="operation" class="page">
+            <div class="box">
+                <div class="box-header">═[ USAGE EXAMPLES ]═</div>
+                <div class="box-content">
+                    <div class="code-block">
+                        <div class="code-header">CONVERSATIONAL MODE</div>
+converse("Hello, how are you?")
+# Speaks message, waits for response
+# Returns transcribed user response
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">STATEMENT MODE</div>
+converse("Goodbye!", wait_for_response=False)
+# Speaks message without waiting
+# Immediate return after speech
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">LISTENING MODE</div>
+response = listen_for_speech(duration=30)
+# Pure listening mode
+# Returns transcribed text after duration
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">EMOTIONAL SPEECH</div>
+converse("Great job!", 
+  tts_model="gpt-4o-mini-tts",
+  tts_instructions="Sound excited")
+# Requires VOICE_ALLOW_EMOTIONS=true
+# Uses advanced TTS model
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ SYSTEM DIAGNOSTICS ]═</div>
+                <div class="box-content">
+                    <div class="code-block">
+                        <div class="code-header">CHECK SYSTEM STATUS</div>
+voice_status()
+# Returns comprehensive service health
+# Shows all active voice services
+# Displays configuration details
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">LIST AUDIO DEVICES</div>
+check_audio_devices()
+# Shows available input devices
+# Shows available output devices
+# Displays current default devices
+                    </div>
+                    <div class="code-block">
+                        <div class="code-header">ENABLE DEBUG MODE</div>
+export VOICE_MODE_DEBUG=true
+# Enables verbose logging
+# Shows all API calls
+# Displays timing information
+                    </div>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ FILE AREA ]═</div>
+                <div class="box-content">
+                    <pre class="bright-cyan">
+FILENAME              SIZE    DATE       DESCRIPTION
+─────────────────────────────────────────────────────────
+VOICEMODE.ZIP         1.2M    2025-06-21 Complete package
+README.TXT            32K     2025-06-21 Documentation
+DEMO.MP4              8.7M    2025-06-21 Video demonstration
+WHISPER.EXE           4.5M    2025-06-21 STT binary
+KOKORO.TAR            12M     2025-06-21 TTS models
+
+[D]ownload  [V]iew  [Q]uit                    <span class="cursor">_</span>
+                    </pre>
+                </div>
+            </div>
+
+            <div class="box">
+                <div class="box-header">═[ EXTERNAL LINKS ]═</div>
+                <div class="box-content">
+                    <p>■ Watch Demo: <a href="https://www.youtube.com/watch?v=aXRNWvpnwVs" target="_blank">youtube.com/watch?v=aXRNWvpnwVs</a></p>
+                    <p>■ Source Code: <a href="https://github.com/mbailey/voicemode" target="_blank">github.com/mbailey/voicemode</a></p>
+                    <p>■ Join Chat: <a href="https://discord.gg/gVHPPK5U" target="_blank">discord.gg/gVHPPK5U</a></p>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <pre class="dark-gray">
+╔════════════════════════════════════════════════════════════════════════╗
+║ VOICE MODE BBS │ <a href="https://getvoicemode.com">GETVOICEMODE.COM</a> │ <a href="https://github.com/mbailey/voicemode">GITHUB</a> │ <a href="https://discord.gg/gVHPPK5U">DISCORD</a>        ║
+║ MIT LICENSE │ A <a href="https://failmode.com">FAILMODE</a> PROJECT │ SYSOP: MBAILEY                       ║
+║ BUILT FOR HUMANS WHO PREFER SPEAKING TO TYPING                        ║
+╚════════════════════════════════════════════════════════════════════════╝
+            </pre>
+        </footer>
+    </div>
+
+    <div class="status-line">
+        <span id="clock"></span> │ ANSI COLOR │ 80x25 │ ALT-X TO EXIT │ F1-F4 NAVIGATION
+    </div>
+
+    <script>
+        // BBS clock
+        function updateClock() {
+            const now = new Date();
+            const time = now.toLocaleTimeString('en-US', { hour12: false });
+            document.getElementById('clock').textContent = time;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Page navigation
+        function showPage(pageId) {
+            // Hide connecting message
+            document.querySelector('.connecting').style.display = 'none';
+            
+            // Hide all pages
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            
+            // Remove active class from all nav items
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // Show selected page
+            document.getElementById(pageId).classList.add('active');
+            
+            // Mark nav item as active
+            document.querySelector(`[onclick="showPage('${pageId}')"]`).classList.add('active');
+            
+            // Update URL hash
+            window.location.hash = pageId;
+            
+            // Simulate slow loading
+            const page = document.getElementById(pageId);
+            page.style.opacity = '0';
+            setTimeout(() => {
+                page.style.opacity = '1';
+            }, 100);
+        }
+
+        // Handle initial load with hash
+        window.addEventListener('load', () => {
+            const hash = window.location.hash.substring(1);
+            if (hash && document.getElementById(hash)) {
+                showPage(hash);
+            } else {
+                // Hide connecting after delay
+                setTimeout(() => {
+                    document.querySelector('.connecting').style.display = 'none';
+                }, 2000);
+            }
+        });
+
+        // Handle back/forward navigation
+        window.addEventListener('hashchange', () => {
+            const hash = window.location.hash.substring(1);
+            if (hash && document.getElementById(hash)) {
+                showPage(hash);
+            }
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            switch(e.key) {
+                case 'F1':
+                    e.preventDefault();
+                    showPage('manifest');
+                    break;
+                case 'F2':
+                    e.preventDefault();
+                    showPage('specification');
+                    break;
+                case 'F3':
+                    e.preventDefault();
+                    showPage('implementation');
+                    break;
+                case 'F4':
+                    e.preventDefault();
+                    showPage('operation');
+                    break;
+            }
+        });
+
+        // Add retro sound effects (optional)
+        function beep() {
+            const context = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = context.createOscillator();
+            oscillator.type = 'square';
+            oscillator.frequency.setValueAtTime(800, context.currentTime);
+            oscillator.connect(context.destination);
+            oscillator.start();
+            oscillator.stop(context.currentTime + 0.05);
+        }
+
+        // Beep on navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', beep);
+        });
+    </script>
+</body>
+</html>

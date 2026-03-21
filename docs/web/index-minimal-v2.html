@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VOICE MODE</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        ::selection {
+            background: #000;
+            color: #fff;
+        }
+
+        body {
+            background: #fff;
+            color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            font-size: 16px;
+            line-height: 1.5;
+            font-weight: 400;
+            letter-spacing: -0.011em;
+            text-rendering: optimizeLegibility;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 640px;
+            margin: 0 auto;
+            padding: 80px 20px;
+        }
+
+        h1 {
+            font-size: 48px;
+            font-weight: 900;
+            letter-spacing: -0.04em;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        .subtitle {
+            font-size: 20px;
+            font-weight: 600;
+            margin-bottom: 60px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .section {
+            margin-bottom: 80px;
+        }
+
+        h2 {
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            margin-bottom: 24px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #000;
+        }
+
+        p {
+            margin-bottom: 20px;
+            font-size: 18px;
+            line-height: 1.6;
+        }
+
+        .spec {
+            font-family: 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: 14px;
+            line-height: 1.8;
+            background: #f5f5f5;
+            padding: 24px;
+            margin: 24px 0;
+            border-left: 4px solid #000;
+        }
+
+        .spec-header {
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 12px;
+        }
+
+        .feature {
+            padding: 16px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .feature:last-child {
+            border-bottom: none;
+        }
+
+        .feature-name {
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 14px;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+
+        .feature-desc {
+            font-size: 16px;
+            color: #333;
+        }
+
+        a {
+            color: #000;
+            text-decoration: underline;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 2px;
+        }
+
+        a:hover {
+            text-decoration: none;
+            background: #000;
+            color: #fff;
+        }
+
+        .command {
+            font-family: 'SF Mono', Monaco, 'Cascadia Mono', 'Roboto Mono', Consolas, 'Courier New', monospace;
+            font-size: 14px;
+            background: #000;
+            color: #fff;
+            padding: 2px 6px;
+            margin: 0 2px;
+        }
+
+        .nav {
+            margin-bottom: 60px;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .nav-item {
+            display: inline-block;
+            margin-right: 24px;
+            cursor: pointer;
+            text-decoration: none;
+            padding: 4px 0;
+            border-bottom: 2px solid transparent;
+            transition: border-color 0.2s;
+        }
+
+        .nav-item:hover,
+        .nav-item.active {
+            border-bottom-color: #000;
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        .statement {
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.4;
+            margin: 40px 0;
+            text-transform: uppercase;
+            letter-spacing: -0.02em;
+        }
+
+        .meta {
+            font-size: 14px;
+            color: #666;
+            margin-top: 100px;
+            padding-top: 40px;
+            border-top: 2px solid #000;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .meta a {
+            color: #666;
+        }
+
+        .meta a:hover {
+            color: #fff;
+        }
+
+        @media (max-width: 640px) {
+            h1 {
+                font-size: 36px;
+            }
+            
+            .subtitle {
+                font-size: 16px;
+            }
+            
+            .statement {
+                font-size: 20px;
+            }
+            
+            .container {
+                padding: 40px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>VOICE MODE</h1>
+            <div class="subtitle">NATURAL VOICE CONVERSATIONS FOR AI ASSISTANTS VIA MCP</div>
+        </header>
+
+        <nav class="nav">
+            <a href="#manifest" class="nav-item active" onclick="showPage('manifest')">MANIFEST</a>
+            <a href="#specification" class="nav-item" onclick="showPage('specification')">SPECIFICATION</a>
+            <a href="#implementation" class="nav-item" onclick="showPage('implementation')">IMPLEMENTATION</a>
+            <a href="#operation" class="nav-item" onclick="showPage('operation')">OPERATION</a>
+        </nav>
+
+        <div id="manifest" class="page active">
+            <div class="statement">
+                VOICE IS THE MOST NATURAL HUMAN INTERFACE.
+                CODE SHOULD SPEAK.
+                CODE SHOULD LISTEN.
+            </div>
+
+            <section class="section">
+                <h2>THESIS</h2>
+                <p>
+                    Voice Mode transforms AI assistants from text-based tools into conversational partners. 
+                    Through the Model Context Protocol, we enable Claude, ChatGPT, and other LLMs to engage in natural voice interactions.
+                </p>
+                <p>
+                    No more typing. No more reading. Just conversation.
+                </p>
+            </section>
+
+            <section class="section">
+                <h2>PRINCIPLES</h2>
+                <div class="feature">
+                    <div class="feature-name">UNIVERSALITY</div>
+                    <div class="feature-desc">Works with any MCP-compatible client. No vendor lock-in.</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-name">SIMPLICITY</div>
+                    <div class="feature-desc">One command to install. One command to run. Zero configuration required.</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-name">LOCALITY</div>
+                    <div class="feature-desc">Your voice never leaves your machine unless you choose cloud services.</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-name">OPENNESS</div>
+                    <div class="feature-desc">MIT licensed. Fork it. Modify it. Make it yours.</div>
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>ARCHITECTURE</h2>
+                <div class="spec">
+                    <div class="spec-header">TRANSPORT LAYER</div>
+                    LOCAL MICROPHONE → AUDIO CAPTURE → STT SERVICE → TEXT<br>
+                    TEXT → TTS SERVICE → AUDIO SYNTHESIS → SPEAKER OUTPUT<br>
+                    <br>
+                    <div class="spec-header">PROTOCOL LAYER</div>
+                    MCP CLIENT ↔ VOICE MODE SERVER ↔ OPENAI-COMPATIBLE API<br>
+                    <br>
+                    <div class="spec-header">SERVICE LAYER</div>
+                    WHISPER.CPP (STT) | KOKORO (TTS) | LIVEKIT (RTC)
+                </div>
+            </section>
+        </div>
+
+        <div id="specification" class="page">
+            <section class="section">
+                <h2>TECHNICAL SPECIFICATION</h2>
+                <div class="spec">
+                    <div class="spec-header">SYSTEM REQUIREMENTS</div>
+                    PLATFORM: Linux, macOS, Windows (WSL)<br>
+                    RUNTIME: Python 3.10+<br>
+                    MEMORY: 512MB minimum<br>
+                    NETWORK: Internet connection (for cloud services)<br>
+                    <br>
+                    <div class="spec-header">DEPENDENCIES</div>
+                    pyaudio >= 0.2.11<br>
+                    openai >= 1.0.0<br>
+                    mcp >= 1.0.0<br>
+                    livekit >= 0.17.5 (optional)<br>
+                    <br>
+                    <div class="spec-header">API COMPATIBILITY</div>
+                    STT: OpenAI Whisper API v1<br>
+                    TTS: OpenAI TTS API v1<br>
+                    PROTOCOL: Model Context Protocol 2024.11
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>TOOL INTERFACE</h2>
+                <div class="spec">
+                    converse(message, wait_for_response=True)<br>
+                    listen_for_speech(duration=15.0)<br>
+                    check_room_status()<br>
+                    check_audio_devices()<br>
+                    voice_status()<br>
+                    list_tts_voices(provider=None)<br>
+                    kokoro_start(models_dir=None)<br>
+                    kokoro_stop()<br>
+                    kokoro_status()
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>CONFIGURATION VARIABLES</h2>
+                <div class="spec">
+                    OPENAI_API_KEY          # Required for cloud services<br>
+                    STT_BASE_URL            # Custom STT endpoint<br>
+                    STT_API_KEY             # STT authentication<br>
+                    STT_MODEL               # Whisper model selection<br>
+                    TTS_BASE_URL            # Custom TTS endpoint<br>
+                    TTS_API_KEY             # TTS authentication<br>
+                    TTS_MODEL               # TTS model selection<br>
+                    TTS_VOICE               # Voice selection<br>
+                    VOICE_MODE_DEBUG         # Enable debug logging<br>
+                    VOICE_MODE_SAVE_AUDIO    # Save audio files<br>
+                    VOICE_MODE_AUDIO_DIR     # Audio save directory
+                </div>
+            </section>
+        </div>
+
+        <div id="implementation" class="page">
+            <section class="section">
+                <h2>INSTALLATION</h2>
+                <p>Three methods. Choose one.</p>
+                <div class="spec">
+                    <div class="spec-header">METHOD 1: CLAUDE CODE</div>
+                    $ claude mcp add --scope user voice-mode uvx voice-mode<br>
+                    <br>
+                    <div class="spec-header">METHOD 2: UV</div>
+                    $ uvx voice-mode<br>
+                    <br>
+                    <div class="spec-header">METHOD 3: PIP</div>
+                    $ pip install voice-mode
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>LOCAL VOICE STACK</h2>
+                <p>Run everything on your machine. No cloud dependencies.</p>
+                <div class="spec">
+                    <div class="spec-header">WHISPER.CPP (PORT 2022)</div>
+                    $ make whisper-start<br>
+                    Local speech-to-text with OpenAI-compatible API<br>
+                    <br>
+                    <div class="spec-header">KOKORO TTS (PORT 8880)</div>
+                    $ make kokoro-start<br>
+                    Local text-to-speech with multiple voice options<br>
+                    <br>
+                    <div class="spec-header">LIVEKIT (PORT 7880)</div>
+                    $ make livekit-start<br>
+                    Real-time communication for room-based voice
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>INTEGRATION</h2>
+                <div class="spec">
+                    <div class="spec-header">CLAUDE DESKTOP</div>
+                    1. Install Voice Mode via Claude Code<br>
+                    2. Start Claude Desktop<br>
+                    3. Use /converse command<br>
+                    <br>
+                    <div class="spec-header">CUSTOM MCP CLIENT</div>
+                    1. Add voice-mode to MCP server list<br>
+                    2. Configure transport (stdio/sse)<br>
+                    3. Call voice tools via MCP protocol
+                </div>
+            </section>
+        </div>
+
+        <div id="operation" class="page">
+            <section class="section">
+                <h2>USAGE PATTERNS</h2>
+                <div class="spec">
+                    <div class="spec-header">CONVERSATIONAL MODE</div>
+                    converse("Hello, how are you?")<br>
+                    # Speaks message, waits for response<br>
+                    <br>
+                    <div class="spec-header">STATEMENT MODE</div>
+                    converse("Goodbye!", wait_for_response=False)<br>
+                    # Speaks message, no waiting<br>
+                    <br>
+                    <div class="spec-header">LISTENING MODE</div>
+                    response = listen_for_speech(duration=30)<br>
+                    # Pure listening, returns transcribed text<br>
+                    <br>
+                    <div class="spec-header">EMOTIONAL SPEECH</div>
+                    converse("Great job!", <br>
+                    &nbsp;&nbsp;tts_model="gpt-4o-mini-tts",<br>
+                    &nbsp;&nbsp;tts_instructions="Sound excited")<br>
+                    # Requires VOICE_ALLOW_EMOTIONS=true
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>DIAGNOSTICS</h2>
+                <div class="spec">
+                    <div class="spec-header">CHECK SYSTEM STATUS</div>
+                    voice_status()<br>
+                    # Returns comprehensive service health<br>
+                    <br>
+                    <div class="spec-header">LIST AUDIO DEVICES</div>
+                    check_audio_devices()<br>
+                    # Shows available input/output devices<br>
+                    <br>
+                    <div class="spec-header">DEBUG MODE</div>
+                    export VOICE_MODE_DEBUG=true<br>
+                    # Enables verbose logging
+                </div>
+            </section>
+
+            <section class="section">
+                <h2>DEMONSTRATION</h2>
+                <p>
+                    Watch Voice Mode in action: <a href="https://www.youtube.com/watch?v=aXRNWvpnwVs" target="_blank">Demo Video</a>
+                </p>
+                <p>
+                    Read the complete documentation: <a href="https://github.com/mbailey/voicemode" target="_blank">GitHub Repository</a>
+                </p>
+                <p>
+                    Join the conversation: <a href="https://discord.gg/gVHPPK5U" target="_blank">Discord Community</a>
+                </p>
+            </section>
+        </div>
+
+        <footer class="meta">
+            VOICE MODE | <a href="https://getvoicemode.com">GETVOICEMODE.COM</a> | <a href="https://github.com/mbailey/voicemode">GITHUB</a> | <a href="https://discord.gg/gVHPPK5U">DISCORD</a><br>
+            MIT LICENSE | A <a href="https://failmode.com">FAILMODE</a> PROJECT<br>
+            <br>
+            BUILT FOR HUMANS WHO PREFER SPEAKING TO TYPING
+        </footer>
+    </div>
+
+    <script>
+        function showPage(pageId) {
+            // Hide all pages
+            document.querySelectorAll('.page').forEach(page => {
+                page.classList.remove('active');
+            });
+            
+            // Remove active class from all nav items
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            
+            // Show selected page
+            document.getElementById(pageId).classList.add('active');
+            
+            // Mark nav item as active
+            document.querySelector(`[onclick="showPage('${pageId}')"]`).classList.add('active');
+            
+            // Update URL hash
+            window.location.hash = pageId;
+        }
+
+        // Handle initial load with hash
+        window.addEventListener('load', () => {
+            const hash = window.location.hash.substring(1);
+            if (hash && document.getElementById(hash)) {
+                showPage(hash);
+            }
+        });
+
+        // Handle back/forward navigation
+        window.addEventListener('hashchange', () => {
+            const hash = window.location.hash.substring(1);
+            if (hash && document.getElementById(hash)) {
+                showPage(hash);
+            }
+        });
+    </script>
+</body>
+</html>

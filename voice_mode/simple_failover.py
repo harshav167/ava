@@ -1,0 +1,451 @@
+"""
+Simple failover implementation for voice-mode.
+
+This module provides a direct try-and-failover approach without health checks.
+Connection refused errors are instant, so there's no performance penalty.
+"""
+
+import logging
+from typing import Optional, Tuple, Dict, Any
+from openai import AsyncOpenAI
+from .openai_error_parser import OpenAIErrorParser
+from .provider_discovery import is_local_provider
+
+from .config import (
+    TTS_BASE_URLS, STT_BASE_URLS, OPENAI_API_KEY, STT_PROMPT, WHISPER_LANGUAGE,
+    ELEVENLABS_API_KEY, ELEVENLABS_TTS_MODEL, ELEVENLABS_TTS_VOICE,
+)
+from .provider_discovery import detect_provider_type
+
+logger = logging.getLogger("voicemode")
+
+
+async def simple_tts_failover(
+    text: str,
+    voice: str,
+    model: str,
+    **kwargs
+) -> Tuple[bool, Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """
+    Simple TTS failover - try each endpoint in order until one works.
+    
+    Returns:
+        Tuple of (success, metrics, config)
+    """
+    logger.info(f"simple_tts_failover called with: text='{text[:50]}...', voice={voice}, model={model}")
+    logger.info(f"kwargs: {kwargs}")
+    
+    from .core import text_to_speech
+    from .conversation_logger import get_conversation_logger
+
+    # Track attempted endpoints and their errors
+    attempted_endpoints = []
+
+    # Get conversation ID from logger
+    conversation_logger = get_conversation_logger()
+    conversation_id = conversation_logger.conversation_id
+
+    # Try each TTS endpoint in order
+    logger.info(f"simple_tts_failover: Starting with TTS_BASE_URLS = {TTS_BASE_URLS}")
+    for base_url in TTS_BASE_URLS:
+        logger.info(f"Trying TTS endpoint: {base_url}")
+
+        # Create client for this endpoint
+        provider_type = detect_provider_type(base_url)
+
+        # ElevenLabs TTS - uses its own SDK, not OpenAI-compatible
+        if provider_type == "elevenlabs":
+            try:
+                from .elevenlabs_client import elevenlabs_tts_stream
+                from .audio_player import NonBlockingAudioPlayer
+                from .config import DJDucker
+                import time as _time
+
+                # Use ElevenLabs voice ID directly, or map from Kokoro/OpenAI names
+                el_voice = ELEVENLABS_TTS_VOICE
+                if voice and not voice.startswith(("af_", "am_", "bf_", "bm_")):
+                    # Could be an ElevenLabs voice ID already
+                    el_voice = voice if len(voice) > 10 else ELEVENLABS_TTS_VOICE
+
+                logger.info(f"ElevenLabs TTS: voice={el_voice}, model={ELEVENLABS_TTS_MODEL}")
+
+                gen_start = _time.perf_counter()
+                audio_stream = elevenlabs_tts_stream(
+                    text=text,
+                    voice_id=el_voice,
+                    model_id=ELEVENLABS_TTS_MODEL,
+                    output_format="pcm_24000",
+                    speed=kwargs.get("speed") or 1.0,
+                    api_key=ELEVENLABS_API_KEY,
+                )
+
+                # Collect PCM chunks and play
+                audio_chunks = []
+                for chunk in audio_stream:
+                    audio_chunks.append(chunk)
+                gen_time = _time.perf_counter() - gen_start
+
+                if not audio_chunks:
+                    raise Exception("ElevenLabs TTS returned no audio")
+
+                pcm_data = b"".join(audio_chunks)
+                logger.info(f"ElevenLabs TTS: generated {len(pcm_data)} bytes in {gen_time:.2f}s")
+
+                # Play PCM audio (24kHz, 16-bit mono)
+                play_start = _time.perf_counter()
+                import numpy as np
+                audio_array = np.frombuffer(pcm_data, dtype=np.int16)
+
+                with DJDucker():
+                    player = NonBlockingAudioPlayer()
+                    player.play(audio_array, sample_rate=24000)
+                    player.wait()
+                play_time = _time.perf_counter() - play_start
+
+                metrics = {
+                    "generation": round(gen_time * 1000, 1),
+                    "playback": round(play_time * 1000, 1),
+                }
+                config = {
+                    "base_url": "elevenlabs://tts",
+                    "provider": "elevenlabs",
+                    "voice": el_voice,
+                    "model": ELEVENLABS_TTS_MODEL,
+                    "endpoint": "api.elevenlabs.io/v1/text-to-speech",
+                }
+                logger.info(f"ElevenLabs TTS succeeded: gen={gen_time:.2f}s play={play_time:.2f}s")
+                return True, metrics, config
+
+            except Exception as e:
+                logger.error(f"ElevenLabs TTS failed: {e}")
+                attempted_endpoints.append({
+                    "endpoint": "api.elevenlabs.io/v1/text-to-speech",
+                    "provider": "elevenlabs",
+                    "voice": ELEVENLABS_TTS_VOICE,
+                    "model": ELEVENLABS_TTS_MODEL,
+                    "error": str(e),
+                })
+                continue
+
+        api_key = OPENAI_API_KEY if provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+
+        # Select appropriate voice for this provider
+        if provider_type == "openai":
+            # Map Kokoro voices to OpenAI equivalents, or use OpenAI default
+            openai_voices = ["alloy", "echo", "fable", "nova", "onyx", "shimmer"]
+            if voice in openai_voices:
+                selected_voice = voice
+            else:
+                # Map common Kokoro voices to OpenAI equivalents
+                voice_mapping = {
+                    "af_sky": "nova",
+                    "af_sarah": "nova",
+                    "af_alloy": "alloy",
+                    "am_adam": "onyx",
+                    "am_echo": "echo",
+                    "am_onyx": "onyx",
+                    "bm_fable": "fable"
+                }
+                selected_voice = voice_mapping.get(voice, "alloy")  # Default to alloy
+                logger.info(f"Mapped voice {voice} to {selected_voice} for OpenAI")
+        else:
+            selected_voice = voice  # Use original voice for Kokoro
+
+        # Disable retries for local endpoints - they either work or don't
+        max_retries = 0 if is_local_provider(base_url) else 2
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=30.0,  # Reasonable timeout
+            max_retries=max_retries
+        )
+
+        # Create clients dict for text_to_speech
+        openai_clients = {'tts': client}
+
+        # Try TTS with this endpoint
+        # Wrap in try/catch to get actual exception details
+        last_exception = None
+        try:
+            success, metrics = await text_to_speech(
+                text=text,
+                openai_clients=openai_clients,
+                tts_model=model,
+                tts_voice=selected_voice,
+                tts_base_url=base_url,
+                conversation_id=conversation_id,
+                **kwargs
+            )
+
+            if success:
+                config = {
+                    'base_url': base_url,
+                    'provider': provider_type,
+                    'voice': selected_voice,  # Return the voice actually used
+                    'model': model,
+                    'endpoint': f"{base_url}/audio/speech"
+                }
+                logger.info(f"TTS succeeded with {base_url} using voice {selected_voice}")
+                return True, metrics, config
+            else:
+                # text_to_speech returned False, but we don't have exception details
+                # Create a generic error message
+                last_exception = Exception("TTS request failed")
+
+        except Exception as e:
+            last_exception = e
+
+        # Handle the error (either from exception or False return)
+        if last_exception:
+            error_message = str(last_exception)
+            logger.error(f"TTS failed for {base_url}: {error_message}")
+            logger.debug(f"Exception type: {type(last_exception).__name__}")  # Debug logging
+
+            # Parse OpenAI errors for better user feedback
+            error_details = None
+            if provider_type == "openai":
+                error_details = OpenAIErrorParser.parse_error(last_exception, endpoint=f"{base_url}/audio/speech")
+                # Log the user-friendly error message
+                if error_details and error_details.get('title'):
+                    logger.error(f"  {error_details['title']}: {error_details.get('message', '')}")
+                    if error_details.get('suggestion'):
+                        logger.info(f"  💡 {error_details['suggestion']}")
+
+            # Add to attempted endpoints with error details
+            attempted_endpoints.append({
+                'endpoint': f"{base_url}/audio/speech",
+                'provider': provider_type,
+                'voice': selected_voice,
+                'model': model,
+                'error': error_message,
+                'error_details': error_details  # Include parsed error details
+            })
+
+            # Continue to next endpoint
+            continue
+
+    # All endpoints failed - return detailed error info
+    logger.error(f"All TTS endpoints failed after {len(attempted_endpoints)} attempts")
+    error_config = {
+        'error_type': 'all_providers_failed',
+        'attempted_endpoints': attempted_endpoints
+    }
+    return False, None, error_config
+
+
+async def simple_stt_failover(
+    audio_file,
+    model: str = "whisper-1",
+    **kwargs
+) -> Optional[Dict[str, Any]]:
+    """
+    Simple STT failover - try each endpoint in order until one works.
+
+    Returns:
+        Dict with transcription result or error information:
+        - Success: {"text": "...", "provider": "...", "endpoint": "...", "metrics": {...}}
+        - No speech: {"error_type": "no_speech", "provider": "...", "metrics": {...}}
+        - All failed: {"error_type": "connection_failed", "attempted_endpoints": [...]}
+
+        The metrics dict (when present) contains:
+        - file_size_bytes: Size of audio file sent
+        - request_time_ms: Total time for the API request
+        - is_local: Whether the endpoint is local (localhost/LAN)
+    """
+    import time
+
+    connection_errors = []
+    successful_but_empty = False
+    successful_provider = None
+
+    # Get file size for metrics
+    file_size_bytes = 0
+    try:
+        # Save current position, seek to end to get size, restore position
+        start_pos = audio_file.tell()
+        audio_file.seek(0, 2)  # Seek to end
+        file_size_bytes = audio_file.tell()
+        audio_file.seek(start_pos)  # Restore position
+        # Ensure we got an integer
+        if not isinstance(file_size_bytes, int):
+            file_size_bytes = 0
+    except Exception as e:
+        logger.debug(f"Could not get file size: {e}")
+        file_size_bytes = 0
+
+    # Log STT request details
+    logger.info("STT: Starting speech-to-text conversion")
+    logger.info(f"  Available endpoints: {STT_BASE_URLS}")
+    if file_size_bytes > 0:
+        logger.info(f"  Audio file size: {file_size_bytes / 1024:.1f}KB")
+
+    # Try each STT endpoint in order
+    for i, base_url in enumerate(STT_BASE_URLS):
+        try:
+            # Detect provider type for logging
+            provider_type = detect_provider_type(base_url)
+
+            if i == 0:
+                logger.info(f"STT: Attempting primary endpoint: {base_url} ({provider_type})")
+            else:
+                logger.warning(f"STT: Primary failed, attempting fallback #{i}: {base_url} ({provider_type})")
+
+            # ElevenLabs STT (batch) - uses its own SDK
+            if provider_type == "elevenlabs":
+                try:
+                    from .elevenlabs_client import elevenlabs_stt_batch
+                    import time
+
+                    # Parse keyterms from STT_PROMPT (comma-separated)
+                    keyterms = [t.strip() for t in STT_PROMPT.split(",") if t.strip()] if STT_PROMPT else None
+
+                    # Reset file position for this attempt
+                    audio_file.seek(0)
+
+                    request_start = time.perf_counter()
+                    result = elevenlabs_stt_batch(
+                        audio_file=audio_file,
+                        model_id="scribe_v2",
+                        language_code=WHISPER_LANGUAGE if WHISPER_LANGUAGE and WHISPER_LANGUAGE != "auto" else None,
+                        keyterms=keyterms,
+                        api_key=ELEVENLABS_API_KEY,
+                    )
+                    request_time_ms = (time.perf_counter() - request_start) * 1000
+
+                    text = result.get("text", "").strip()
+                    metrics = {
+                        "file_size_bytes": file_size_bytes,
+                        "request_time_ms": round(request_time_ms, 1),
+                        "is_local": False,
+                    }
+
+                    if text:
+                        logger.info(f"ElevenLabs STT batch succeeded: '{text[:80]}' ({request_time_ms:.0f}ms)")
+                        return {"text": text, "provider": "elevenlabs", "endpoint": base_url, "metrics": metrics}
+                    else:
+                        logger.warning("ElevenLabs STT returned empty result")
+                        successful_but_empty = True
+                        successful_provider = "elevenlabs"
+                        continue
+
+                except Exception as e:
+                    logger.error(f"ElevenLabs STT batch failed: {e}")
+                    connection_errors.append({
+                        "endpoint": "api.elevenlabs.io/v1/speech-to-text",
+                        "provider": "elevenlabs",
+                        "error": str(e),
+                    })
+                    continue
+
+            # Create client for this endpoint (OpenAI-compatible providers)
+            api_key = OPENAI_API_KEY if provider_type == "openai" else (OPENAI_API_KEY or "dummy-key-for-local")
+
+            # Disable retries for local endpoints - they either work or don't
+            max_retries = 0 if is_local_provider(base_url) else 2
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                timeout=60.0,  # Allow time for slower transcriptions
+                max_retries=max_retries
+            )
+
+            # Try STT with this endpoint - track timing
+            request_start = time.perf_counter()
+            # Build transcription kwargs with optional prompt for vocabulary biasing
+            transcription_kwargs = {
+                "model": model,
+                "file": audio_file,
+                "response_format": "text"
+            }
+            if STT_PROMPT:
+                transcription_kwargs["prompt"] = STT_PROMPT
+
+            # Handle language parameter based on provider
+            # - whisper.cpp: needs "auto" explicitly (default is "en")
+            # - OpenAI API: omit for auto-detect (doesn't accept "auto")
+            if WHISPER_LANGUAGE and WHISPER_LANGUAGE != "auto":
+                # Explicit language set - pass to all providers
+                transcription_kwargs["language"] = WHISPER_LANGUAGE
+            elif is_local_provider(base_url):
+                # Local whisper.cpp with auto mode - must pass "auto" explicitly
+                transcription_kwargs["language"] = "auto"
+            # For OpenAI with "auto" - don't pass parameter (auto-detect by default)
+
+            transcription = await client.audio.transcriptions.create(**transcription_kwargs)
+            request_time_ms = (time.perf_counter() - request_start) * 1000
+
+            text = transcription.strip() if isinstance(transcription, str) else transcription.text.strip()
+
+            # Build metrics dict
+            is_local = is_local_provider(base_url)
+            metrics = {
+                "file_size_bytes": file_size_bytes,
+                "request_time_ms": round(request_time_ms, 1),
+                "is_local": is_local,
+            }
+
+            if text:
+                logger.info(f"✓ STT succeeded with {provider_type} at {base_url}")
+                logger.info(f"  Transcribed: {text[:100]}{'...' if len(text) > 100 else ''}")
+                logger.info(f"  Request time: {request_time_ms:.0f}ms, File size: {file_size_bytes/1024:.1f}KB")
+                # Return both text and provider info for display, plus metrics
+                return {"text": text, "provider": provider_type, "endpoint": base_url, "metrics": metrics}
+            else:
+                # Successful connection but no speech detected
+                logger.warning(f"STT returned empty result from {base_url} ({provider_type})")
+                successful_but_empty = True
+                successful_provider = provider_type
+                # Store metrics for potential no_speech return
+                successful_metrics = metrics
+
+        except Exception as e:
+            error_str = str(e)
+            provider_type = detect_provider_type(base_url)
+
+            # Parse OpenAI errors for better user feedback
+            error_details = None
+            if provider_type == "openai":
+                full_endpoint = f"{base_url}/audio/transcriptions" if not base_url.endswith("/v1") else f"{base_url}/audio/transcriptions"
+                error_details = OpenAIErrorParser.parse_error(e, endpoint=full_endpoint)
+                # Log the user-friendly error message
+                if error_details.get('title'):
+                    logger.error(f"  {error_details['title']}: {error_details.get('message', '')}")
+                    if error_details.get('suggestion'):
+                        logger.info(f"  💡 {error_details['suggestion']}")
+
+            # Track connection/auth errors
+            full_endpoint = f"{base_url}/audio/transcriptions" if not base_url.endswith("/v1") else f"{base_url}/audio/transcriptions"
+            connection_errors.append({
+                "endpoint": full_endpoint,
+                "provider": provider_type,
+                "error": error_str,
+                "error_details": error_details  # Include parsed error details
+            })
+
+            # Log failure with appropriate level based on whether we have fallbacks
+            if i < len(STT_BASE_URLS) - 1:
+                logger.warning(f"STT failed for {base_url} ({provider_type}): {e}")
+                logger.info("  Will try next endpoint...")
+            else:
+                logger.error(f"STT failed for final endpoint {base_url} ({provider_type}): {e}")
+
+            # Continue to next endpoint
+            continue
+
+    # Determine what to return based on results
+    if successful_but_empty:
+        # At least one endpoint connected successfully but returned no speech
+        logger.info("STT: No speech detected (successful connection)")
+        result = {"error_type": "no_speech", "provider": successful_provider}
+        # Include metrics if we captured them
+        if 'successful_metrics' in locals():
+            result["metrics"] = successful_metrics
+        return result
+    elif connection_errors:
+        # All endpoints failed with connection/auth errors
+        logger.error(f"✗ All STT endpoints failed after {len(STT_BASE_URLS)} attempts")
+        return {"error_type": "connection_failed", "attempted_endpoints": connection_errors}
+    else:
+        # Should not reach here, but handle it gracefully
+        logger.error("STT: Unexpected state - no successful connections and no errors tracked")
+        return None
