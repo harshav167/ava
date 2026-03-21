@@ -31,7 +31,7 @@ async def simple_tts_failover(
     logger.info(f"kwargs: {kwargs}")
 
     try:
-        from elevenlabs.client import ElevenLabs
+        from .elevenlabs_client import get_client
         from elevenlabs import stream as elevenlabs_play
         import time as _time
 
@@ -42,7 +42,7 @@ async def simple_tts_failover(
 
         logger.info(f"ElevenLabs TTS: voice={el_voice}, model={ELEVENLABS_TTS_MODEL}")
 
-        el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        el_client = get_client(ELEVENLABS_API_KEY)
 
         gen_start = _time.perf_counter()
         audio_stream = el_client.text_to_speech.stream(
@@ -55,6 +55,8 @@ async def simple_tts_failover(
         elevenlabs_play(audio_stream)
         total_time = _time.perf_counter() - gen_start
 
+        # SDK stream() combines generation and playback into one blocking call,
+        # so both values reflect the total elapsed time.
         metrics = {
             "generation": round(total_time * 1000, 1),
             "playback": round(total_time * 1000, 1),
@@ -86,7 +88,7 @@ async def simple_tts_failover(
 
 async def simple_stt_failover(
     audio_file,
-    model: str = "whisper-1",
+    model: str = "scribe_v2",
     **kwargs
 ) -> Optional[Dict[str, Any]]:
     """

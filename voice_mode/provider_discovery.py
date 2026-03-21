@@ -10,7 +10,6 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from . import config
 from .config import TTS_BASE_URLS, STT_BASE_URLS
 
 logger = logging.getLogger("voicemode")
