@@ -58,7 +58,7 @@ async def simple_tts_failover(
             try:
                 from .elevenlabs_client import elevenlabs_tts_stream
                 from .audio_player import NonBlockingAudioPlayer
-                from .config import DJDucker
+                from .tools.converse import DJDucker
                 import time as _time
 
                 # Use ElevenLabs voice ID directly, or map from Kokoro/OpenAI names
