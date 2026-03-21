@@ -493,28 +493,16 @@ def parse_comma_list(env_var: str, fallback: str) -> list:
     value = os.getenv(env_var, fallback)
     return [item.strip() for item in value.split(",") if item.strip()]
 
-# Build default provider URL lists based on available API keys
-_default_tts_urls = []
-_default_stt_urls = []
+# Provider URL lists — ElevenLabs-only when key is set
+if ELEVENLABS_API_KEY and not os.getenv("VOICEMODE_TTS_BASE_URLS"):
+    TTS_BASE_URLS = ["elevenlabs://tts"]
+else:
+    TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", "elevenlabs://tts")
 
-# Local providers always available (they just fail fast if not running)
-_default_tts_urls.append("http://127.0.0.1:8880/v1")
-_default_stt_urls.append("http://127.0.0.1:2022/v1")
-
-# Only include OpenAI if API key is set
-if OPENAI_API_KEY:
-    _default_tts_urls.append("https://api.openai.com/v1")
-    _default_stt_urls.append("https://api.openai.com/v1")
-
-TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", ",".join(_default_tts_urls))
-STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", ",".join(_default_stt_urls))
-
-# When ElevenLabs API key is set, prepend ElevenLabs as primary provider
-if ELEVENLABS_API_KEY:
-    if not os.getenv("VOICEMODE_TTS_BASE_URLS"):
-        TTS_BASE_URLS.insert(0, "elevenlabs://tts")
-    if not os.getenv("VOICEMODE_STT_BASE_URLS"):
-        STT_BASE_URLS.insert(0, "elevenlabs://stt")
+if ELEVENLABS_API_KEY and not os.getenv("VOICEMODE_STT_BASE_URLS"):
+    STT_BASE_URLS = ["elevenlabs://stt"]
+else:
+    STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", "elevenlabs://stt")
 
 TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "af_sky,alloy")
 TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "tts-1,tts-1-hd,gpt-4o-mini-tts")
@@ -571,8 +559,10 @@ def reload_configuration():
     
     # Update global configuration variables
     global TTS_VOICES, TTS_MODELS, TTS_BASE_URLS, STT_BASE_URLS
-    TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", "http://127.0.0.1:8880/v1,https://api.openai.com/v1")
-    STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", "http://127.0.0.1:2022/v1,https://api.openai.com/v1")
+    _default_tts = "elevenlabs://tts" if ELEVENLABS_API_KEY else "http://127.0.0.1:8880/v1"
+    _default_stt = "elevenlabs://stt" if ELEVENLABS_API_KEY else "http://127.0.0.1:2022/v1"
+    TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", _default_tts)
+    STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", _default_stt)
     TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "af_sky,alloy")
     TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "tts-1,tts-1-hd,gpt-4o-mini-tts")
     
