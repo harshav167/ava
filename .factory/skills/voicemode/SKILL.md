@@ -27,7 +27,7 @@ Add to your Droid MCP configuration (`~/.factory/mcp.json` or project `.factory/
   "mcpServers": {
     "voicemode": {
       "command": "uvx",
-      "args": ["voice-mode"],
+      "args": ["--from", "git+https://github.com/harshav167/ava.git", "voicemode"],
       "env": {
         "ELEVENLABS_API_KEY": "your-elevenlabs-api-key"
       }
