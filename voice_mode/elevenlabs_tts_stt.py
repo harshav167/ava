@@ -42,12 +42,23 @@ async def simple_tts_failover(
 
         el_client = get_client(ELEVENLABS_API_KEY)
 
+        # Get speed from kwargs (default 1.5 for faster playback)
+        speed = kwargs.get("speed") or 1.5
+
         gen_start = _time.perf_counter()
-        audio_stream = el_client.text_to_speech.stream(
-            text=text,
-            voice_id=el_voice,
-            model_id=ELEVENLABS_TTS_MODEL,
-        )
+
+        tts_kwargs = {
+            "text": text,
+            "voice_id": el_voice,
+            "model_id": ELEVENLABS_TTS_MODEL,
+        }
+
+        # Apply speed via VoiceSettings
+        if speed != 1.0:
+            from elevenlabs import VoiceSettings
+            tts_kwargs["voice_settings"] = VoiceSettings(speed=speed)
+
+        audio_stream = el_client.text_to_speech.stream(**tts_kwargs)
 
         # Use the SDK's built-in stream() player (uses mpv/ffplay)
         elevenlabs_play(audio_stream)
