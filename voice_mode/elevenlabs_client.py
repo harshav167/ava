@@ -2,7 +2,7 @@
 ElevenLabs client wrapper for VoiceMode.
 
 Provides batch STT (speech-to-text) via the ElevenLabs SDK.
-TTS is handled directly in simple_failover.py using the SDK's built-in stream() player.
+TTS is handled directly in elevenlabs_tts_stt.py using the SDK's built-in stream() player.
 """
 
 import logging

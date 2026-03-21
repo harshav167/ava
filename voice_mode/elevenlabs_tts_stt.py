@@ -1,7 +1,7 @@
 """
-Simple failover implementation for voice-mode.
+ElevenLabs TTS and STT for VoiceMode.
 
-This module provides ElevenLabs-only TTS and STT.
+All voice synthesis and transcription goes through ElevenLabs.
 """
 
 import logging

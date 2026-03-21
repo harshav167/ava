@@ -403,7 +403,7 @@ async def text_to_speech_with_failover(
         message = pronounce_mgr.process_tts(message)
 
     # Always use simple failover (the only mode now)
-    from voice_mode.simple_failover import simple_tts_failover
+    from voice_mode.elevenlabs_tts_stt import simple_tts_failover
     return await simple_tts_failover(
         text=message,
         voice=voice or TTS_VOICES[0],
@@ -516,7 +516,7 @@ async def speech_to_text(
     import io
     from voice_mode.conversation_logger import get_conversation_logger
     from voice_mode.core import save_debug_file, get_debug_filename
-    from voice_mode.simple_failover import simple_stt_failover
+    from voice_mode.elevenlabs_tts_stt import simple_stt_failover
     from voice_mode.config import STT_BASE_URLS, STT_COMPRESS
     from voice_mode.provider_discovery import is_local_provider
 

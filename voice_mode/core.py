@@ -747,7 +747,7 @@ async def play_system_audio(message_key: str, fallback_text: Optional[str] = Non
     if fallback_text:
         logger.info(f"Using TTS fallback for system message '{message_key}': {fallback_text}")
         # Import here to avoid circular dependency
-        from voice_mode.simple_failover import simple_tts_failover
+        from voice_mode.elevenlabs_tts_stt import simple_tts_failover
         success, metrics, config = await simple_tts_failover(
             text=fallback_text,
             voice="af_sky",  # Use AF Sky for system messages
