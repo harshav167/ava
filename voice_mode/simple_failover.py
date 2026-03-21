@@ -53,58 +53,36 @@ async def simple_tts_failover(
         # Create client for this endpoint
         provider_type = detect_provider_type(base_url)
 
-        # ElevenLabs TTS - uses its own SDK, not OpenAI-compatible
+        # ElevenLabs TTS - uses the ElevenLabs SDK with built-in audio playback
         if provider_type == "elevenlabs":
             try:
-                from .elevenlabs_client import elevenlabs_tts_stream
-                from .audio_player import NonBlockingAudioPlayer
-                from .tools.converse import DJDucker
+                from elevenlabs.client import ElevenLabs
+                from elevenlabs import stream as elevenlabs_play
                 import time as _time
 
-                # Use ElevenLabs voice ID directly, or map from Kokoro/OpenAI names
+                # Use ElevenLabs voice ID directly, or fall back to configured default
                 el_voice = ELEVENLABS_TTS_VOICE
                 if voice and not voice.startswith(("af_", "am_", "bf_", "bm_")):
-                    # Could be an ElevenLabs voice ID already
                     el_voice = voice if len(voice) > 10 else ELEVENLABS_TTS_VOICE
 
                 logger.info(f"ElevenLabs TTS: voice={el_voice}, model={ELEVENLABS_TTS_MODEL}")
 
+                el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+
                 gen_start = _time.perf_counter()
-                audio_stream = elevenlabs_tts_stream(
+                audio_stream = el_client.text_to_speech.stream(
                     text=text,
                     voice_id=el_voice,
                     model_id=ELEVENLABS_TTS_MODEL,
-                    output_format="pcm_24000",
-                    speed=kwargs.get("speed") or 1.0,
-                    api_key=ELEVENLABS_API_KEY,
                 )
 
-                # Collect PCM chunks and play
-                audio_chunks = []
-                for chunk in audio_stream:
-                    audio_chunks.append(chunk)
-                gen_time = _time.perf_counter() - gen_start
-
-                if not audio_chunks:
-                    raise Exception("ElevenLabs TTS returned no audio")
-
-                pcm_data = b"".join(audio_chunks)
-                logger.info(f"ElevenLabs TTS: generated {len(pcm_data)} bytes in {gen_time:.2f}s")
-
-                # Play PCM audio (24kHz, 16-bit mono)
-                play_start = _time.perf_counter()
-                import numpy as np
-                audio_array = np.frombuffer(pcm_data, dtype=np.int16)
-
-                with DJDucker():
-                    player = NonBlockingAudioPlayer()
-                    player.play(audio_array, sample_rate=24000)
-                    player.wait()
-                play_time = _time.perf_counter() - play_start
+                # Use the SDK's built-in stream() player (uses mpv/ffplay)
+                elevenlabs_play(audio_stream)
+                total_time = _time.perf_counter() - gen_start
 
                 metrics = {
-                    "generation": round(gen_time * 1000, 1),
-                    "playback": round(play_time * 1000, 1),
+                    "generation": round(total_time * 1000, 1),
+                    "playback": round(total_time * 1000, 1),
                 }
                 config = {
                     "base_url": "elevenlabs://tts",
@@ -113,7 +91,7 @@ async def simple_tts_failover(
                     "model": ELEVENLABS_TTS_MODEL,
                     "endpoint": "api.elevenlabs.io/v1/text-to-speech",
                 }
-                logger.info(f"ElevenLabs TTS succeeded: gen={gen_time:.2f}s play={play_time:.2f}s")
+                logger.info(f"ElevenLabs TTS succeeded: {total_time:.2f}s")
                 return True, metrics, config
 
             except Exception as e:
