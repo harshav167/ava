@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "voicemode": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/harshav167/ava.git",
+        "voicemode"
+      ]
+    }
+  }
+}

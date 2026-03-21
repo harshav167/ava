@@ -35,10 +35,8 @@ async def simple_tts_failover(
         from elevenlabs import stream as elevenlabs_play
         import time as _time
 
-        # Use ElevenLabs voice ID directly, or fall back to configured default
+        # Always use the configured ElevenLabs voice ID
         el_voice = ELEVENLABS_TTS_VOICE
-        if voice and not voice.startswith(("af_", "am_", "bf_", "bm_")):
-            el_voice = voice if len(voice) > 10 else ELEVENLABS_TTS_VOICE
 
         logger.info(f"ElevenLabs TTS: voice={el_voice}, model={ELEVENLABS_TTS_MODEL}")
 
