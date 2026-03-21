@@ -2,10 +2,9 @@
   "mcpServers": {
     "voicemode": {
       "type": "stdio",
-      "command": "uvx",
+      "command": "uv",
       "args": [
-        "--from",
-        "git+https://github.com/harshav167/ava.git",
+        "run",
         "voicemode"
       ],
       "env": {
