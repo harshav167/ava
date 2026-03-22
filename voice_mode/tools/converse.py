@@ -1337,9 +1337,9 @@ set wait_for_conch=true to queue, or try again later.
                 # Play "listening" feedback sound
                 await play_audio_feedback(
                     "listening",
-                    openai_clients,
+                    None,
                     chime_enabled,
-                    "whisper",
+                    "chime",
                     chime_leading_silence=chime_leading_silence,
                     chime_trailing_silence=chime_trailing_silence
                 )
