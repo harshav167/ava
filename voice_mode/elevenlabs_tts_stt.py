@@ -38,6 +38,7 @@ async def elevenlabs_tts(
         from elevenlabs.play import play as elevenlabs_play
         from elevenlabs import VoiceSettings
         import time as _time
+        import re
 
         el_voice = ELEVENLABS_TTS_VOICE
         logger.info(f"ElevenLabs TTS: voice={el_voice}, model={ELEVENLABS_TTS_MODEL}")
@@ -48,20 +49,43 @@ async def elevenlabs_tts(
         if speed is None:
             speed = 1.2  # Default faster playback
 
+        # Chunk long text into sentences to avoid timeout on ElevenLabs convert()
+        # ElevenLabs handles up to ~5000 chars well, but very long texts can hang
+        MAX_CHUNK_CHARS = 2000
+        if len(text) > MAX_CHUNK_CHARS:
+            # Split on sentence boundaries
+            chunks = re.split(r'(?<=[.!?])\s+', text)
+            # Merge small chunks to avoid too many API calls
+            merged = []
+            current = ""
+            for chunk in chunks:
+                if len(current) + len(chunk) + 1 > MAX_CHUNK_CHARS and current:
+                    merged.append(current.strip())
+                    current = chunk
+                else:
+                    current = current + " " + chunk if current else chunk
+            if current.strip():
+                merged.append(current.strip())
+            logger.info(f"ElevenLabs TTS: split {len(text)} chars into {len(merged)} chunks")
+        else:
+            merged = [text]
+
         gen_start = _time.perf_counter()
 
-        # Use convert() which returns complete audio — more reliable than stream()
-        # for all models including eleven_v3 (which doesn't support WebSocket streaming)
-        audio_iterator = el_client.text_to_speech.convert(
-            text=text,
-            voice_id=el_voice,
-            model_id=ELEVENLABS_TTS_MODEL,
-            output_format="mp3_44100_128",
-            voice_settings=VoiceSettings(speed=speed),
-        )
+        for i, chunk_text in enumerate(merged):
+            logger.info(f"ElevenLabs TTS chunk {i+1}/{len(merged)}: {len(chunk_text)} chars")
 
-        # play() collects all bytes then plays via ffplay — works with all models
-        elevenlabs_play(audio_iterator)
+            audio_iterator = el_client.text_to_speech.convert(
+                text=chunk_text,
+                voice_id=el_voice,
+                model_id=ELEVENLABS_TTS_MODEL,
+                output_format="mp3_44100_128",
+                voice_settings=VoiceSettings(speed=speed),
+            )
+
+            # play() collects all bytes then plays via ffplay — works with all models
+            elevenlabs_play(audio_iterator)
+
         total_time = _time.perf_counter() - gen_start
 
         # SDK stream() combines generation and playback into one blocking call,

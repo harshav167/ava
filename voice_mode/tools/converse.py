@@ -1368,12 +1368,39 @@ set wait_for_conch=true to queue, or try again later.
                     from voice_mode.config import STT_LANGUAGE as _el_language
 
                     record_start = time.perf_counter()
+
+                    # Try realtime STT with one retry on transient errors
                     stt_result = await realtime_transcribe(
                         api_key=ELEVENLABS_API_KEY,
                         max_duration=listen_duration_max,
                         min_duration=listen_duration_min,
                         language_code=_el_language if _el_language and _el_language != "auto" else None,
                     )
+
+                    # Retry once on connection_failed (includes resource_exhausted)
+                    if isinstance(stt_result, dict) and stt_result.get("error_type") == "connection_failed":
+                        error_msg = stt_result.get("error", "")
+                        logger.warning(f"Realtime STT failed: {error_msg}. Retrying in 2s...")
+                        await asyncio.sleep(2)
+                        stt_result = await realtime_transcribe(
+                            api_key=ELEVENLABS_API_KEY,
+                            max_duration=listen_duration_max,
+                            min_duration=listen_duration_min,
+                            language_code=_el_language if _el_language and _el_language != "auto" else None,
+                        )
+
+                    # If realtime still failed, fall back to batch (record + upload)
+                    if isinstance(stt_result, dict) and stt_result.get("error_type") == "connection_failed":
+                        logger.warning("Realtime STT failed twice. Falling back to batch record+transcribe.")
+                        # Use the traditional path: record locally, then batch STT
+                        audio_data, speech_detected = await asyncio.get_event_loop().run_in_executor(
+                            None, record_audio_with_silence_detection, listen_duration_max, disable_silence_detection, listen_duration_min, vad_aggressiveness
+                        )
+                        if speech_detected and len(audio_data) > 0:
+                            stt_result = await speech_to_text(audio_data, SAVE_AUDIO, AUDIO_DIR if SAVE_AUDIO else None, transport)
+                        else:
+                            stt_result = {"error_type": "no_speech", "provider": "local_vad"}
+
                     elapsed = time.perf_counter() - record_start
                     timings['record'] = elapsed
                     timings['stt'] = elapsed  # Recording and STT happen simultaneously
