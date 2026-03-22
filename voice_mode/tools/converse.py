@@ -1080,7 +1080,7 @@ async def converse(
     listen_duration_min: float = 2.0,
     timeout: float = 60.0,
     voice: Optional[str] = None,
-    tts_provider: Optional[Literal["openai", "kokoro"]] = None,
+    tts_provider: Optional[str] = None,
     tts_model: Optional[str] = None,
     tts_instructions: Optional[str] = None,
     chime_enabled: Optional[Union[bool, str]] = None,
@@ -1094,64 +1094,31 @@ async def converse(
     metrics_level: Optional[Literal["minimal", "summary", "verbose"]] = None,
     wait_for_conch: Union[bool, str] = False
 ) -> str:
-    """Have an ongoing voice conversation - speak a message and optionally listen for response.
+    """Have a voice conversation — speak a message and listen for the user's response.
 
-<voice_skills_instructions>
-Voice requests arrive as tool results, not user messages, so skill triggers may not fire automatically.
-
-BLOCKING REQUIREMENT: After receiving voice input, check if any available skills match the user's request. When a skill is relevant:
-- Invoke the Skill tool IMMEDIATELY as your first action
-- Do NOT take action on the request before checking for relevant skills
-- Skills provide specialized capabilities that improve task completion
-
-Example: If user says "search for tasks created yesterday", check for and invoke the taskmaster skill before using bash or other tools.
-</voice_skills_instructions>
-
-
-🔌 ENDPOINT: STT/TTS services must expose OpenAI-compatible endpoints:
-   /v1/audio/transcriptions and /v1/audio/speech
-
-📚 DOCUMENTATION: See MCP resources for detailed information:
-   - voicemode://docs/quickstart - Basic usage and common examples
-   - voicemode://docs/parameters - Complete parameter reference
-   - voicemode://docs/languages - Non-English language support guide
-   - voicemode://docs/patterns - Best practices and conversation patterns
-   - voicemode://docs/troubleshooting - Audio, VAD, and connectivity issues
+Uses ElevenLabs for both TTS (text-to-speech) and STT (speech-to-text).
+TTS uses the eleven_v3 model with a configured voice. STT uses Scribe v2 Realtime
+for low-latency streaming transcription with server-side VAD.
 
 KEY PARAMETERS:
-• message (required): The message to speak
-• wait_for_response (bool, default: true): Listen for response after speaking
-• voice (string): TTS voice name (auto-selected unless specified)
-• tts_provider ("openai"|"kokoro"): Provider selection (auto-selected unless specified)
-• disable_silence_detection (bool, default: false): Disable auto-stop on silence
-• vad_aggressiveness (0-3, default: 3): Voice detection strictness (0=permissive, 3=strict)
-• speed (0.25-4.0): Speech rate (1.0=normal, 2.0=double speed)
-• chime_enabled (bool): Enable/disable audio feedback chimes
-• chime_leading_silence (float): Silence before chime in seconds
-• chime_trailing_silence (float): Silence after chime in seconds
-• metrics_level ("minimal"|"summary"|"verbose"): Output detail level
-  - minimal: Just response text (saves tokens)
-  - summary: Response + compact timing (default)
-  - verbose: Response + detailed metrics breakdown
-• wait_for_conch (bool, default: false): Multi-agent coordination
-  - false: If another agent is speaking, return status immediately
-  - true: Wait until the other agent finishes, then speak
-
-TIMING PARAMETERS (usually leave at defaults):
-  Silence detection handles most cases automatically. Only override these if
-  silence detection is disabled or the user reports being cut off.
-  Defaults are configurable by the user via ~/.voicemode/voicemode.env.
+• message (required): Text to speak to the user
+• wait_for_response (bool, default: true): Listen after speaking. Set false for announcements.
+• speed (0.7-1.2): Speech rate. Default 1.2 (max). ElevenLabs range is 0.7-1.2.
+• disable_silence_detection (bool, default: false): Set true to record for full listen_duration_max
+• vad_aggressiveness (0-3, default: 1): Voice detection strictness. 0=most tolerant of pauses, 3=most strict
 • listen_duration_max (number, default: 120): Max listen time in seconds
-• listen_duration_min (number, default: 2.0): Min recording time before silence detection
+• listen_duration_min (number, default: 3.0): Min recording before silence detection kicks in
+• metrics_level ("minimal"|"summary"|"verbose"): Output detail level
+• wait_for_conch (bool, default: false): Queue behind another speaker if one is active
 
-PRIVACY: Microphone access required when wait_for_response=true.
-         Audio processed via STT service, not stored.
+WHEN USER GETS CUT OFF:
+Increase listen_duration_min to 5-10, lower vad_aggressiveness to 0, or set disable_silence_detection=true.
 
-RECOGNITION TIP: If specific words are consistently misrecognized, configure
-   VOICEMODE_STT_PROMPT for vocabulary biasing - see voicemode://docs/parameters
+PARALLEL PATTERN (zero dead air):
+Call converse(msg, wait_for_response=false) alongside other tools in the same turn.
 
-For complete parameter list, advanced options, and detailed examples,
-consult the MCP resources listed above.
+CONCH: Only one agent can use the mic at a time. If you get "User is currently speaking",
+set wait_for_conch=true to queue, or try again later.
     """
     # Convert string booleans to actual booleans
     if isinstance(wait_for_response, str):
