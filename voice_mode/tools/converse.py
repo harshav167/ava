@@ -1706,15 +1706,13 @@ set wait_for_conch=true to queue, or try again later.
                     stt_timing_str = ", ".join(stt_timing_parts) if stt_timing_parts else None
                     
                     conversation_logger = get_conversation_logger()
-                    # Get STT config for provider info
-                    stt_config = await get_stt_config()
-                    
+
                     conversation_logger.log_stt(
                         text=response_text if response_text else "[no speech detected]",
-                        model=stt_config.get('model', 'whisper-1'),
-                        provider=stt_config.get('provider', 'openai'),
-                        provider_url=stt_config.get('base_url'),
-                        provider_type=stt_config.get('provider_type'),
+                        model="scribe_v2_realtime",
+                        provider="elevenlabs",
+                        provider_url="api.elevenlabs.io",
+                        provider_type="elevenlabs",
                         audio_format='mp3',
                         transport=transport,
                         timing=stt_timing_str,

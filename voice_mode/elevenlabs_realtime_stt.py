@@ -107,8 +107,12 @@ async def realtime_transcribe(
 
     def on_error_event(data):
         nonlocal error_message, recording
-        error_message = str(data)
-        logger.error(f"ElevenLabs Realtime STT error: {data}")
+        # Don't overwrite a successful transcript with a close-related error
+        if not committed_text:
+            error_message = str(data)
+            logger.error(f"ElevenLabs Realtime STT error: {data}")
+        else:
+            logger.debug(f"ElevenLabs Realtime STT post-commit error (ignored): {data}")
         recording = False
         session_ready.set()  # Unblock any waiter
 
