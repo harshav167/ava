@@ -1999,8 +1999,6 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
             port=port,
             log_level=log_level.lower(),
             access_log=False,  # Disable uvicorn access log, use our middleware instead
-            reload=True,
-            reload_dirs=[str(Path(__file__).parent)],  # Watch voice_mode/ for changes
         )
     except KeyboardInterrupt:
         click.echo("\nServer stopped")
