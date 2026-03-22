@@ -1373,12 +1373,17 @@ set wait_for_conch=true to queue, or try again later.
 
                     record_start = time.perf_counter()
 
+                    # When silence detection is disabled, use max ElevenLabs VAD threshold (3.0s)
+                    # Default 2.5s is more tolerant than the SDK default of 2.0
+                    el_vad_threshold = 3.0 if disable_silence_detection else 2.5
+
                     # Try realtime STT with one retry on transient errors
                     stt_result = await realtime_transcribe(
                         api_key=ELEVENLABS_API_KEY,
                         max_duration=listen_duration_max,
                         min_duration=listen_duration_min,
                         language_code=_el_language if _el_language and _el_language != "auto" else None,
+                        vad_silence_threshold=el_vad_threshold,
                     )
 
                     # Retry once on connection_failed (includes resource_exhausted)
@@ -1391,6 +1396,7 @@ set wait_for_conch=true to queue, or try again later.
                             max_duration=listen_duration_max,
                             min_duration=listen_duration_min,
                             language_code=_el_language if _el_language and _el_language != "auto" else None,
+                            vad_silence_threshold=el_vad_threshold,
                         )
 
                     # If realtime still failed, fall back to batch (record + upload)
