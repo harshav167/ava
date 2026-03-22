@@ -132,3 +132,7 @@ voicemode-install-feedback.md
 .claude_settings.json
 .security-key
 logs/security/
+
+# Reference repos (local only, not part of package)
+elevenlabs-python/
+examples/
