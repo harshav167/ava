@@ -1549,8 +1549,10 @@ set wait_for_conch=true to queue, or try again later.
                     response_text = None
                     stt_provider = "unknown"
 
-                # Check for repeat phrase - if detected, replay the audio and listen again
-                if response_text and should_repeat(response_text):
+                # Check for repeat phrase - disabled for now, causes crashes with background noise
+                # The repeat feature replays TTS when user says "what" or "repeat" but
+                # background audio (TV, music) triggers false positives that crash the server.
+                if False and response_text and should_repeat(response_text):
                     logger.info(f"🔁 Repeat requested: '{response_text}'")
 
                     # Play system message for repeat
