@@ -9,13 +9,16 @@ from typing import Optional, Tuple, Dict, Any
 
 from .config import (
     ELEVENLABS_API_KEY, ELEVENLABS_TTS_MODEL, ELEVENLABS_TTS_VOICE,
-    STT_PROMPT, WHISPER_LANGUAGE,
+    STT_PROMPT, STT_LANGUAGE,
 )
+
+# Backward compatibility alias
+WHISPER_LANGUAGE = STT_LANGUAGE
 
 logger = logging.getLogger("voicemode")
 
 
-async def simple_tts_failover(
+async def elevenlabs_tts(
     text: str,
     voice: str,
     model: str,
@@ -27,7 +30,7 @@ async def simple_tts_failover(
     Returns:
         Tuple of (success, metrics, config)
     """
-    logger.info(f"simple_tts_failover called with: text='{text[:50]}...', voice={voice}, model={model}")
+    logger.info(f"elevenlabs_tts called with: text='{text[:50]}...', voice={voice}, model={model}")
     logger.info(f"kwargs: {kwargs}")
 
     try:
@@ -92,7 +95,7 @@ async def simple_tts_failover(
         return False, None, error_config
 
 
-async def simple_stt_failover(
+async def elevenlabs_stt(
     audio_file,
     model: str = "scribe_v2",
     **kwargs
@@ -139,7 +142,7 @@ async def simple_stt_failover(
         result = elevenlabs_stt_batch(
             audio_file=audio_file,
             model_id="scribe_v2",
-            language_code=WHISPER_LANGUAGE if (WHISPER_LANGUAGE and WHISPER_LANGUAGE != "auto") else "en",
+            language_code=STT_LANGUAGE if (STT_LANGUAGE and STT_LANGUAGE != "auto") else "en",
             keyterms=keyterms,
             api_key=ELEVENLABS_API_KEY,
         )
@@ -169,3 +172,8 @@ async def simple_stt_failover(
                 "error": str(e),
             }],
         }
+
+
+# Backward compatibility aliases
+simple_tts_failover = elevenlabs_tts
+simple_stt_failover = elevenlabs_stt

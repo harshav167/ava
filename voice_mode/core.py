@@ -17,9 +17,7 @@ from typing import Optional
 
 import numpy as np
 from pydub import AudioSegment
-from openai import AsyncOpenAI
 from .provider_discovery import is_local_provider
-import httpx
 
 from .config import SAMPLE_RATE
 from .utils import (
@@ -130,36 +128,9 @@ def save_debug_file(data: bytes, prefix: str, extension: str, debug_dir: Path, d
         return None
 
 
-def get_openai_clients(api_key: str, stt_base_url: Optional[str] = None, tts_base_url: Optional[str] = None) -> dict:
-    """Initialize OpenAI clients for STT and TTS with connection pooling"""
-    # Configure timeouts and connection pooling
-    http_client_config = {
-        'timeout': httpx.Timeout(30.0, connect=5.0),
-        'limits': httpx.Limits(max_keepalive_connections=5, max_connections=10),
-    }
-
-    # Disable retries for local endpoints - they either work or don't
-    stt_max_retries = 0 if is_local_provider(stt_base_url) else 2
-    tts_max_retries = 0 if is_local_provider(tts_base_url) else 2
-
-    # Create HTTP clients
-    stt_http_client = httpx.AsyncClient(**http_client_config)
-    tts_http_client = httpx.AsyncClient(**http_client_config)
-
-    return {
-        'stt': AsyncOpenAI(
-            api_key=api_key,
-            base_url=stt_base_url,
-            http_client=stt_http_client,
-            max_retries=stt_max_retries
-        ),
-        'tts': AsyncOpenAI(
-            api_key=api_key,
-            base_url=tts_base_url,
-            http_client=tts_http_client,
-            max_retries=tts_max_retries
-        )
-    }
+def get_openai_clients(api_key: str = "", stt_base_url: Optional[str] = None, tts_base_url: Optional[str] = None) -> dict:
+    """Deprecated stub — OpenAI clients are no longer used. Returns empty dict."""
+    return {}
 
 
 async def text_to_speech(
@@ -220,11 +191,8 @@ async def text_to_speech(
         )
         
         # Determine provider from base URL (simple heuristic)
-        if "openai" in tts_base_url:
-            provider = "openai"
-        else:
-            provider = "kokoro"
-        
+        provider = "elevenlabs"
+
         logger.info(f"  • Detected Provider: {provider} (based on URL: {tts_base_url})")
         
         # Validate format for provider
@@ -254,8 +222,8 @@ async def text_to_speech(
         # Track generation time
         generation_start = time.perf_counter()
         
-        # Check if streaming is enabled and format is supported
-        use_streaming = STREAMING_ENABLED and validated_format in ["opus", "mp3", "pcm", "wav"]
+        # Streaming via OpenAI has been removed — ElevenLabs uses its own playback
+        use_streaming = False
         
         # Allow streaming with the requested format
         # PCM has lowest latency but highest bandwidth
@@ -524,17 +492,13 @@ async def text_to_speech(
             logger.error(f"HTTP status: {e.response.status_code if hasattr(e.response, 'status_code') else 'unknown'}")
             logger.error(f"Response text: {e.response.text if hasattr(e.response, 'text') else 'unknown'}")
 
-            # Check for 401 Unauthorized specifically on OpenAI endpoints
+            # Check for 401 Unauthorized
             if hasattr(e.response, 'status_code') and e.response.status_code == 401:
-                if 'openai.com' in tts_base_url:
-                    logger.error("⚠️  Authentication failed with OpenAI. Please set OPENAI_API_KEY environment variable.")
-                    logger.error("   Alternatively, you can use local services (Kokoro) without an API key.")
+                logger.error("Authentication failed with TTS provider. Please check your API key.")
         elif 'api key' in error_message or 'unauthorized' in error_message or 'authentication' in error_message:
-            if 'openai.com' in tts_base_url:
-                logger.error("⚠️  Authentication issue detected. Please check your OPENAI_API_KEY.")
-                logger.error("   For local-only usage, ensure Kokoro is running and configured.")
+            logger.error("Authentication issue detected. Please check your ELEVENLABS_API_KEY.")
 
-        # Re-raise API errors so simple_tts_failover can parse them properly
+        # Re-raise API errors so elevenlabs_tts can parse them properly
         # This allows proper error messages to be shown to users
         # We'll only return False for local playback errors
         if hasattr(e, 'response') or 'Error code:' in str(e) or isinstance(e, Exception) and not error_message.startswith('error playing audio'):
@@ -747,8 +711,8 @@ async def play_system_audio(message_key: str, fallback_text: Optional[str] = Non
     if fallback_text:
         logger.info(f"Using TTS fallback for system message '{message_key}': {fallback_text}")
         # Import here to avoid circular dependency
-        from voice_mode.elevenlabs_tts_stt import simple_tts_failover
-        success, metrics, config = await simple_tts_failover(
+        from voice_mode.elevenlabs_tts_stt import elevenlabs_tts
+        success, metrics, config = await elevenlabs_tts(
             text=fallback_text,
             voice="af_sky",  # Use AF Sky for system messages
             model="tts-1"  # Use standard TTS model for system messages
@@ -758,20 +722,8 @@ async def play_system_audio(message_key: str, fallback_text: Optional[str] = Non
     return False
 
 
-async def cleanup(openai_clients: dict):
-    """Cleanup function to close HTTP clients and resources"""
+async def cleanup(openai_clients: dict = None):
+    """Cleanup function — no-op since OpenAI clients are no longer used."""
     logger.info("Shutting down Voice Mode Server...")
-    
-    # Close OpenAI HTTP clients
-    try:
-        # Close all clients (including provider-specific ones)
-        for client_name, client in openai_clients.items():
-            if hasattr(client, '_client'):
-                await client._client.aclose()
-                logger.debug(f"Closed {client_name} HTTP client")
-    except Exception as e:
-        logger.error(f"Error closing HTTP clients: {e}")
-    
-    # Final garbage collection
     gc.collect()
     logger.info("Cleanup completed")

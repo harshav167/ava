@@ -13,6 +13,9 @@ from pathlib import Path
 from typing import Dict, Optional
 from datetime import datetime
 
+# FFmpeg availability flag — set dynamically by server.py at startup
+FFMPEG_AVAILABLE = True
+
 # ==================== ENVIRONMENT CONFIGURATION ====================
 
 def find_voicemode_env_files() -> list[Path]:
@@ -434,7 +437,7 @@ AUDIO_FEEDBACK_ENABLED = os.getenv("VOICEMODE_AUDIO_FEEDBACK", "true").lower() i
 # Skip TTS configuration (skip text-to-speech for faster responses)
 SKIP_TTS = os.getenv("VOICEMODE_SKIP_TTS", "false").lower() in ("true", "1", "yes", "on")
 
-# TTS speed configuration (0.25-4.0, default None uses provider default)
+# TTS speed configuration (0.7-1.2 for ElevenLabs, default None uses provider default)
 TTS_SPEED = float(os.getenv("VOICEMODE_TTS_SPEED")) if os.getenv("VOICEMODE_TTS_SPEED") else None
 
 # Metrics output level configuration (minimal/summary/verbose)
@@ -444,17 +447,10 @@ TTS_SPEED = float(os.getenv("VOICEMODE_TTS_SPEED")) if os.getenv("VOICEMODE_TTS_
 _metrics_level = os.getenv("VOICEMODE_METRICS_LEVEL", "summary").lower()
 METRICS_LEVEL = _metrics_level if _metrics_level in ("minimal", "summary", "verbose") else "summary"
 
-# Local provider preference configuration
-PREFER_LOCAL = os.getenv("VOICEMODE_PREFER_LOCAL", "true").lower() in ("true", "1", "yes", "on")
-
-# Always try local providers (don't mark them as permanently unavailable)
-ALWAYS_TRY_LOCAL = os.getenv("VOICEMODE_ALWAYS_TRY_LOCAL", "true").lower() in ("true", "1", "yes", "on")
-
-# Use simple failover without health checks
-# Simple failover is now the only mode - configuration removed
-
-# Auto-start configuration
-AUTO_START_KOKORO = os.getenv("VOICEMODE_AUTO_START_KOKORO", "").lower() in ("true", "1", "yes", "on")
+# Legacy stubs — kept for backward compatibility but no longer functional
+PREFER_LOCAL = False
+ALWAYS_TRY_LOCAL = False
+AUTO_START_KOKORO = False
 
 # ==================== CONCH CONFIGURATION ====================
 # The conch is a coordination mechanism for multi-agent voice conversations
@@ -504,8 +500,8 @@ if ELEVENLABS_API_KEY and not os.getenv("VOICEMODE_STT_BASE_URLS"):
 else:
     STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", "elevenlabs://stt")
 
-TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "af_sky,alloy")
-TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "tts-1,tts-1-hd,gpt-4o-mini-tts")
+TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "k4hP4cQadSZQc0Oar2Ld")
+TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "eleven_v3")
 
 # STT prompt for vocabulary biasing (helps with specialized terminology)
 # See: https://platform.openai.com/docs/guides/speech-to-text#prompting
@@ -553,19 +549,17 @@ def reload_configuration():
     """Reload configuration from files and clear all caches."""
     # Clear voice preferences cache
     clear_voice_preferences_cache()
-    
+
     # Reload environment configuration
     load_voicemode_env()
-    
-    # Update global configuration variables
+
+    # Update global configuration variables — ElevenLabs only
     global TTS_VOICES, TTS_MODELS, TTS_BASE_URLS, STT_BASE_URLS
-    _default_tts = "elevenlabs://tts" if ELEVENLABS_API_KEY else "http://127.0.0.1:8880/v1"
-    _default_stt = "elevenlabs://stt" if ELEVENLABS_API_KEY else "http://127.0.0.1:2022/v1"
-    TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", _default_tts)
-    STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", _default_stt)
-    TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "af_sky,alloy")
-    TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "tts-1,tts-1-hd,gpt-4o-mini-tts")
-    
+    TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", "elevenlabs://tts")
+    STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", "elevenlabs://stt")
+    TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "k4hP4cQadSZQc0Oar2Ld")
+    TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "eleven_v3")
+
     logger.info("Configuration reloaded successfully")
 
 # Legacy variables have been removed - use the new list-based configuration:
@@ -574,25 +568,24 @@ def reload_configuration():
 # - VOICEMODE_VOICES (comma-separated list)
 # - VOICEMODE_TTS_MODELS (comma-separated list)
 
-# ==================== WHISPER CONFIGURATION ====================
+# ==================== STT LANGUAGE CONFIGURATION ====================
 
-# Default Whisper model for installation and runtime
-DEFAULT_WHISPER_MODEL = "base"
+# Language for speech-to-text (ElevenLabs Scribe)
+# Check VOICEMODE_STT_LANGUAGE first, fall back to legacy VOICEMODE_WHISPER_LANGUAGE
+STT_LANGUAGE = os.getenv("VOICEMODE_STT_LANGUAGE") or os.getenv("VOICEMODE_WHISPER_LANGUAGE", "auto")
 
-# Whisper-specific configuration
-WHISPER_MODEL = os.getenv("VOICEMODE_WHISPER_MODEL", DEFAULT_WHISPER_MODEL)
-WHISPER_PORT = int(os.getenv("VOICEMODE_WHISPER_PORT", "2022"))
-WHISPER_LANGUAGE = os.getenv("VOICEMODE_WHISPER_LANGUAGE", "auto")
-WHISPER_MODEL_PATH = expand_path(os.getenv("VOICEMODE_WHISPER_MODEL_PATH", str(Path.home() / ".voicemode" / "services" / "whisper" / "models")))
+# Backward compatibility alias
+WHISPER_LANGUAGE = STT_LANGUAGE
 
-# ==================== KOKORO CONFIGURATION ====================
-
-# Kokoro-specific configuration
-KOKORO_PORT = int(os.getenv("VOICEMODE_KOKORO_PORT", "8880"))
-KOKORO_MODELS_DIR = expand_path(os.getenv("VOICEMODE_KOKORO_MODELS_DIR", str(BASE_DIR / "models" / "kokoro")))
-KOKORO_CACHE_DIR = expand_path(os.getenv("VOICEMODE_KOKORO_CACHE_DIR", str(BASE_DIR / "cache" / "kokoro")))
-KOKORO_DEFAULT_VOICE = os.getenv("VOICEMODE_KOKORO_DEFAULT_VOICE", "af_sky")
-KOKORO_MAX_REQUESTS = int(os.getenv("VOICEMODE_KOKORO_MAX_REQUESTS", "25"))
+# Legacy stubs for removed services — kept so imports don't crash
+WHISPER_MODEL = "removed"
+WHISPER_PORT = 0
+WHISPER_MODEL_PATH = ""
+KOKORO_PORT = 0
+KOKORO_MODELS_DIR = ""
+KOKORO_CACHE_DIR = ""
+KOKORO_DEFAULT_VOICE = ""
+KOKORO_MAX_REQUESTS = 0
 
 # ==================== SERVICE MANAGEMENT CONFIGURATION ====================
 

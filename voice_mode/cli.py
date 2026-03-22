@@ -349,19 +349,12 @@ def service_install(service_name, force):
       voicemode service install kokoro --force
     """
     if service_name == 'whisper':
-        from voice_mode.tools.whisper.install import whisper_install
-        result = asyncio.run(whisper_install.fn(force_reinstall=force))
-        # Handle dict result from tool
-        if isinstance(result, dict):
-            if result.get("success"):
-                click.echo(f"✅ Whisper installed successfully")
-                if result.get('install_path'):
-                    click.echo(f"   Install path: {result['install_path']}")
-            else:
-                click.echo(f"❌ Whisper installation failed: {result.get('error', 'Unknown error')}")
-        else:
-            click.echo(result)
+        click.secho("❌ Whisper has been removed. VoiceMode now uses ElevenLabs exclusively.", fg='red')
+        return
     elif service_name == 'kokoro':
+        click.secho("❌ Kokoro has been removed. VoiceMode now uses ElevenLabs exclusively.", fg='red')
+        return
+    elif service_name == '_legacy_kokoro':
         from voice_mode.tools.kokoro.install import kokoro_install
         result = asyncio.run(kokoro_install.fn(force_reinstall=force))
         if isinstance(result, dict):
@@ -768,11 +761,9 @@ def whisper_service_uninstall(remove_models, remove_all_data):
             click.echo(f"   Details: {result['details']}")
 
 
-# Import the unified model command
-from voice_mode.whisper_model_unified import whisper_model_unified
-
-# Add it directly to the whisper group
-whisper.add_command(whisper_model_unified, name="model")
+# Whisper model command removed — ElevenLabs is the only provider
+# from voice_mode.whisper_model_unified import whisper_model_unified
+# whisper.add_command(whisper_model_unified, name="model")
 
 # Backward compatibility: Add hidden aliases for old direct commands
 # These allow "whisper start" to work as "whisper service start"

@@ -10,12 +10,10 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from .config import TTS_BASE_URLS, STT_BASE_URLS
-
 logger = logging.getLogger("voicemode")
 
 
-# ElevenLabs model lists
+# ElevenLabs model lists (hardcoded — no config import needed)
 ELEVENLABS_TTS_MODELS = [
     "eleven_flash_v2_5",
     "eleven_v3",
@@ -82,6 +80,9 @@ class ProviderRegistry:
 
             logger.info("Initializing provider registry...")
 
+            # Import here to avoid circular imports at module level
+            from .config import TTS_BASE_URLS, STT_BASE_URLS
+
             # Initialize TTS endpoints
             for url in TTS_BASE_URLS:
                 self.registry["tts"][url] = EndpointInfo(
@@ -111,7 +112,9 @@ class ProviderRegistry:
         """Get all endpoints for a service type in priority order."""
         endpoints = []
 
-        # Return endpoints in the order they were configured
+        # Import here to avoid circular imports
+        from .config import TTS_BASE_URLS, STT_BASE_URLS
+
         base_urls = TTS_BASE_URLS if service_type == "tts" else STT_BASE_URLS
 
         for url in base_urls:
@@ -164,11 +167,7 @@ class ProviderRegistry:
         }
 
     async def mark_failed(self, service_type: str, base_url: str, error: str):
-        """Record that an endpoint failed.
-
-        This updates the last_error and last_check fields for diagnostics,
-        but doesn't prevent the endpoint from being tried again.
-        """
+        """Record that an endpoint failed."""
         if base_url in self.registry[service_type]:
             self.registry[service_type][base_url].last_error = error
             self.registry[service_type][base_url].last_check = datetime.now(timezone.utc).isoformat()

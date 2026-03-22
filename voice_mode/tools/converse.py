@@ -13,8 +13,6 @@ import numpy as np
 import sounddevice as sd
 from scipy.io.wavfile import write
 from pydub import AudioSegment
-from openai import AsyncOpenAI
-import httpx
 
 # Optional webrtcvad for silence detection
 try:
@@ -37,7 +35,6 @@ from voice_mode.config import (
     SAVE_AUDIO,
     AUDIO_DIR,
     OPENAI_API_KEY,
-    PREFER_LOCAL,
     AUDIO_FEEDBACK_ENABLED,
     service_processes,
     HTTP_CLIENT_CONFIG,
@@ -68,9 +65,6 @@ from voice_mode.config import (
 import voice_mode.config
 from voice_mode.provider_discovery import provider_registry
 from voice_mode.core import (
-    get_openai_clients,
-    text_to_speech,
-    cleanup as cleanup_clients,
     save_debug_file,
     get_debug_filename,
     get_audio_path,
@@ -251,135 +245,21 @@ def should_wait(text: str) -> bool:
 # Track last session end time for measuring AI thinking time
 last_session_end_time = None
 
-# Initialize OpenAI clients - now using provider registry for endpoint discovery
-openai_clients = get_openai_clients(OPENAI_API_KEY or "dummy-key-for-local", None, None)
-
-# Provider-specific clients are now created dynamically by the provider registry
-
 
 async def startup_initialization():
     """Initialize services on startup based on configuration"""
     if voice_mode.config._startup_initialized:
         return
-    
+
     voice_mode.config._startup_initialized = True
     logger.info("Running startup initialization...")
-    
+
     # Initialize provider registry
     logger.info("Initializing provider registry...")
     await provider_registry.initialize()
-    
-    # Check if we should auto-start Kokoro
-    auto_start_kokoro = os.getenv("VOICE_MODE_AUTO_START_KOKORO", "").lower() in ("true", "1", "yes", "on")
-    if auto_start_kokoro:
-        try:
-            # Check if Kokoro is already running
-            async with httpx.AsyncClient(timeout=3.0) as client:
-                base_url = 'http://127.0.0.1:8880'  # Kokoro default
-                health_url = f"{base_url}/health"
-                response = await client.get(health_url)
-                
-                if response.status_code == 200:
-                    logger.info("Kokoro TTS is already running externally")
-                else:
-                    raise Exception("Not running")
-        except:
-            # Kokoro is not running, start it
-            logger.info("Auto-starting Kokoro TTS service...")
-            try:
-                # Import here to avoid circular dependency
-                import subprocess
-                if "kokoro" not in service_processes:
-                    process = subprocess.Popen(
-                        ["uvx", "kokoro-fastapi"],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        env={**os.environ}
-                    )
-                    service_processes["kokoro"] = process
-                    
-                    # Wait a moment for it to start
-                    await asyncio.sleep(2.0)
-                    
-                    # Verify it started
-                    if process.poll() is None:
-                        logger.info(f"✓ Kokoro TTS started successfully (PID: {process.pid})")
-                    else:
-                        logger.error("Failed to start Kokoro TTS")
-            except Exception as e:
-                logger.error(f"Error auto-starting Kokoro: {e}")
-    
+
     # Log initial status
     logger.info("Service initialization complete")
-
-
-async def get_tts_config(provider: Optional[str] = None, voice: Optional[str] = None, model: Optional[str] = None, instructions: Optional[str] = None):
-    """Get TTS configuration - simplified to use direct config"""
-    from voice_mode.provider_discovery import detect_provider_type
-
-    # Validate instructions usage
-    if instructions and model != "gpt-4o-mini-tts":
-        logger.warning(f"Instructions parameter is only supported with gpt-4o-mini-tts model, ignoring for model: {model}")
-        instructions = None
-
-    # Map provider names to base URLs
-    provider_urls = {
-        'openai': 'https://api.openai.com/v1',
-        'kokoro': 'http://127.0.0.1:8880/v1'
-    }
-
-    # Convert provider name to URL if it's a known provider
-    base_url = None
-    if provider:
-        base_url = provider_urls.get(provider, provider)
-
-    # Use first available endpoint from config
-    if not base_url:
-        base_url = TTS_BASE_URLS[0] if TTS_BASE_URLS else 'https://api.openai.com/v1'
-
-    provider_type = detect_provider_type(base_url)
-
-    # Return simplified configuration
-    return {
-        'base_url': base_url,
-        'model': model or TTS_MODELS[0] if TTS_MODELS else 'tts-1',
-        'voice': voice or TTS_VOICES[0] if TTS_VOICES else 'alloy',
-        'instructions': instructions,
-        'provider_type': provider_type
-    }
-
-
-async def get_stt_config(provider: Optional[str] = None):
-    """Get STT configuration - simplified to use direct config"""
-    from voice_mode.provider_discovery import detect_provider_type
-    from voice_mode.config import STT_BASE_URLS
-
-    # Map provider names to base URLs
-    provider_urls = {
-        'whisper-local': 'http://127.0.0.1:2022/v1',
-        'openai-whisper': 'https://api.openai.com/v1'
-    }
-
-    # Convert provider name to URL if it's a known provider
-    base_url = None
-    if provider:
-        base_url = provider_urls.get(provider, provider)
-
-    # Use first available endpoint from config
-    if not base_url:
-        base_url = STT_BASE_URLS[0] if STT_BASE_URLS else 'https://api.openai.com/v1'
-
-    provider_type = detect_provider_type(base_url)
-
-    # Return simplified configuration
-    return {
-        'base_url': base_url,
-        'model': 'whisper-1',
-        'provider': 'whisper-local' if '127.0.0.1' in base_url or 'localhost' in base_url else 'openai-whisper',
-        'provider_type': provider_type
-    }
-
 
 
 async def text_to_speech_with_failover(
@@ -403,8 +283,8 @@ async def text_to_speech_with_failover(
         message = pronounce_mgr.process_tts(message)
 
     # Always use simple failover (the only mode now)
-    from voice_mode.elevenlabs_tts_stt import simple_tts_failover
-    return await simple_tts_failover(
+    from voice_mode.elevenlabs_tts_stt import elevenlabs_tts
+    return await elevenlabs_tts(
         text=message,
         voice=voice or TTS_VOICES[0],
         model=model or TTS_MODELS[0],
@@ -490,7 +370,7 @@ async def speech_to_text(
     Convert audio to text with automatic failover.
 
     Handles audio file preparation (saving permanently or using temp file) and
-    delegates to simple_stt_failover for the actual transcription attempts.
+    delegates to elevenlabs_stt for the actual transcription attempts.
 
     For remote endpoints: Audio is compressed (MP3 at 32kbps) and downsampled
     to 16kHz to reduce bandwidth usage when uploading.
@@ -516,7 +396,7 @@ async def speech_to_text(
     import io
     from voice_mode.conversation_logger import get_conversation_logger
     from voice_mode.core import save_debug_file, get_debug_filename
-    from voice_mode.elevenlabs_tts_stt import simple_stt_failover
+    from voice_mode.elevenlabs_tts_stt import elevenlabs_stt
     from voice_mode.config import STT_BASE_URLS, STT_COMPRESS
     from voice_mode.provider_discovery import is_local_provider
 
@@ -590,9 +470,9 @@ async def speech_to_text(
             tmp_file.close()  # Close before reopening on Windows
 
             with open(tmp_path, 'rb') as audio_file:
-                result = await simple_stt_failover(
+                result = await elevenlabs_stt(
                     audio_file=audio_file,
-                    model="whisper-1"
+                    model="scribe_v2"
                 )
         finally:
             # Clean up temp file (we keep the WAV)
@@ -611,9 +491,9 @@ async def speech_to_text(
             tmp_file.close()  # Close before reopening on Windows
 
             with open(tmp_path, 'rb') as audio_file:
-                result = await simple_stt_failover(
+                result = await elevenlabs_stt(
                     audio_file=audio_file,
-                    model="whisper-1"
+                    model="scribe_v2"
                 )
         finally:
             # Clean up temp file
@@ -627,12 +507,12 @@ async def speech_to_text(
 
 async def play_audio_feedback(
     text: str,
-    openai_clients: dict,
+    openai_clients: dict = None,
     enabled: Optional[bool] = None,
-    style: str = "whisper",
+    style: str = "chime",
     feedback_type: Optional[str] = None,
-    voice: str = "nova",
-    model: str = "gpt-4o-mini-tts",
+    voice: str = "default",
+    model: str = "default",
     chime_leading_silence: Optional[float] = None,
     chime_trailing_silence: Optional[float] = None
 ) -> None:
@@ -640,12 +520,12 @@ async def play_audio_feedback(
 
     Args:
         text: Which chime to play (either "listening" or "finished")
-        openai_clients: OpenAI client instances (kept for compatibility, not used)
+        openai_clients: Deprecated, ignored
         enabled: Override global audio feedback setting
-        style: Kept for compatibility, not used
-        feedback_type: Kept for compatibility, not used
-        voice: Kept for compatibility, not used
-        model: Kept for compatibility, not used
+        style: Deprecated, ignored
+        feedback_type: Deprecated, ignored
+        voice: Deprecated, ignored
+        model: Deprecated, ignored
         chime_leading_silence: Optional override for pre-chime silence duration
         chime_trailing_silence: Optional override for post-chime silence duration
     """
@@ -1485,7 +1365,7 @@ set wait_for_conch=true to queue, or try again later.
                         event_logger.log_event(event_logger.RECORDING_START)
 
                     from voice_mode.elevenlabs_realtime_stt import realtime_transcribe
-                    from voice_mode.config import WHISPER_LANGUAGE as _el_language
+                    from voice_mode.config import STT_LANGUAGE as _el_language
 
                     record_start = time.perf_counter()
                     stt_result = await realtime_transcribe(

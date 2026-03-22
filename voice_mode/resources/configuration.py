@@ -9,13 +9,12 @@ from ..config import (
     logger,
     # Core settings
     BASE_DIR, DEBUG, SAVE_ALL, SAVE_AUDIO, SAVE_TRANSCRIPTIONS,
-    AUDIO_FEEDBACK_ENABLED, PREFER_LOCAL, ALWAYS_TRY_LOCAL, AUTO_START_KOKORO,
+    AUDIO_FEEDBACK_ENABLED,
     # Service settings
     OPENAI_API_KEY, TTS_BASE_URLS, STT_BASE_URLS, TTS_VOICES, TTS_MODELS,
-    # Whisper settings
-    WHISPER_MODEL, WHISPER_PORT, WHISPER_LANGUAGE, WHISPER_MODEL_PATH,
-    # Kokoro settings
-    KOKORO_PORT, KOKORO_MODELS_DIR, KOKORO_CACHE_DIR, KOKORO_DEFAULT_VOICE,
+    # ElevenLabs settings
+    ELEVENLABS_API_KEY, ELEVENLABS_TTS_MODEL, ELEVENLABS_TTS_VOICE,
+    ELEVENLABS_STT_MODEL, STT_LANGUAGE,
     # Audio settings
     AUDIO_FORMAT, TTS_AUDIO_FORMAT, STT_AUDIO_FORMAT,
     SAMPLE_RATE, CHANNELS,
@@ -41,23 +40,22 @@ def mask_sensitive(value: Any, key: str) -> Any:
 async def all_configuration() -> str:
     """
     Complete voice mode configuration.
-    
+
     Shows all current configuration settings including:
     - Core settings (directories, saving options)
-    - Provider settings (TTS/STT endpoints and preferences)
+    - ElevenLabs provider settings
     - Audio settings (formats, quality)
-    - Service-specific settings (Whisper, Kokoro)
     - Silence detection parameters
     - Streaming configuration
     - Event logging settings
-    
+
     Sensitive values like API keys are masked for security.
     """
     lines = []
     lines.append("Voice Mode Configuration")
     lines.append("=" * 80)
     lines.append("")
-    
+
     # Core Settings
     lines.append("Core Settings:")
     lines.append(f"  Base Directory: {BASE_DIR}")
@@ -67,20 +65,21 @@ async def all_configuration() -> str:
     lines.append(f"  Save Transcriptions: {SAVE_TRANSCRIPTIONS}")
     lines.append(f"  Audio Feedback: {AUDIO_FEEDBACK_ENABLED}")
     lines.append("")
-    
+
     # Provider Settings
-    lines.append("Provider Settings:")
-    lines.append(f"  Prefer Local: {PREFER_LOCAL}")
-    lines.append(f"  Always Try Local: {ALWAYS_TRY_LOCAL}")
-    lines.append(f"  Auto-start Kokoro: {AUTO_START_KOKORO}")
+    lines.append("Provider Settings (ElevenLabs):")
     lines.append(f"  TTS Endpoints: {', '.join(TTS_BASE_URLS)}")
     lines.append(f"  STT Endpoints: {', '.join(STT_BASE_URLS)}")
     lines.append(f"  TTS Voices: {', '.join(TTS_VOICES)}")
     lines.append(f"  TTS Models: {', '.join(TTS_MODELS)}")
-    if OPENAI_API_KEY:
-        lines.append(f"  OpenAI API Key: {mask_sensitive(OPENAI_API_KEY, 'openai_api_key')}")
+    if ELEVENLABS_API_KEY:
+        lines.append(f"  ElevenLabs API Key: {mask_sensitive(ELEVENLABS_API_KEY, 'api_key')}")
+    lines.append(f"  ElevenLabs TTS Model: {ELEVENLABS_TTS_MODEL}")
+    lines.append(f"  ElevenLabs TTS Voice: {ELEVENLABS_TTS_VOICE}")
+    lines.append(f"  ElevenLabs STT Model: {ELEVENLABS_STT_MODEL}")
+    lines.append(f"  STT Language: {STT_LANGUAGE}")
     lines.append("")
-    
+
     # Audio Settings
     lines.append("Audio Settings:")
     lines.append(f"  Format: {AUDIO_FORMAT}")
@@ -89,7 +88,7 @@ async def all_configuration() -> str:
     lines.append(f"  Sample Rate: {SAMPLE_RATE} Hz")
     lines.append(f"  Channels: {CHANNELS}")
     lines.append("")
-    
+
     # Silence Detection
     lines.append("Silence Detection:")
     lines.append(f"  Disabled: {DISABLE_SILENCE_DETECTION}")
@@ -99,7 +98,7 @@ async def all_configuration() -> str:
     lines.append(f"  Initial Silence Grace: {INITIAL_SILENCE_GRACE_PERIOD} s")
     lines.append(f"  Default Listen Duration: {DEFAULT_LISTEN_DURATION} s")
     lines.append("")
-    
+
     # Streaming
     lines.append("Streaming:")
     lines.append(f"  Enabled: {STREAMING_ENABLED}")
@@ -107,101 +106,13 @@ async def all_configuration() -> str:
     lines.append(f"  Buffer: {STREAM_BUFFER_MS} ms")
     lines.append(f"  Max Buffer: {STREAM_MAX_BUFFER} s")
     lines.append("")
-    
+
     # Event Logging
     lines.append("Event Logging:")
     lines.append(f"  Enabled: {EVENT_LOG_ENABLED}")
     lines.append(f"  Directory: {EVENT_LOG_DIR}")
     lines.append(f"  Rotation: {EVENT_LOG_ROTATION}")
-    lines.append("")
-    
-    # Whisper
-    lines.append("Whisper Configuration:")
-    lines.append(f"  Model: {WHISPER_MODEL}")
-    lines.append(f"  Port: {WHISPER_PORT}")
-    lines.append(f"  Language: {WHISPER_LANGUAGE}")
-    lines.append(f"  Model Path: {WHISPER_MODEL_PATH}")
-    lines.append(f"  Endpoint: http://127.0.0.1:{WHISPER_PORT}/v1")
-    lines.append("")
-    
-    # Kokoro
-    lines.append("Kokoro Configuration:")
-    lines.append(f"  Port: {KOKORO_PORT}")
-    lines.append(f"  Models Directory: {KOKORO_MODELS_DIR}")
-    lines.append(f"  Cache Directory: {KOKORO_CACHE_DIR}")
-    lines.append(f"  Default Voice: {KOKORO_DEFAULT_VOICE}")
-    lines.append(f"  Endpoint: http://127.0.0.1:{KOKORO_PORT}/v1")
-    
-    return "\n".join(lines)
 
-
-@mcp.resource("voice://config/whisper")
-async def whisper_configuration() -> str:
-    """
-    Whisper service configuration.
-    
-    Shows all Whisper-specific settings including:
-    - Model selection
-    - Port configuration
-    - Language settings
-    - Model storage path
-    
-    These settings control how the local Whisper.cpp service operates.
-    """
-    lines = []
-    lines.append("Whisper Service Configuration")
-    lines.append("=" * 40)
-    lines.append("")
-    
-    lines.append("Current Settings:")
-    lines.append(f"  Model: {WHISPER_MODEL}")
-    lines.append(f"  Port: {WHISPER_PORT}")
-    lines.append(f"  Language: {WHISPER_LANGUAGE}")
-    lines.append(f"  Model Path: {WHISPER_MODEL_PATH}")
-    lines.append(f"  Endpoint: http://127.0.0.1:{WHISPER_PORT}/v1")
-    lines.append("")
-    
-    lines.append("Environment Variables:")
-    lines.append(f"  VOICEMODE_WHISPER_MODEL: {os.getenv('VOICEMODE_WHISPER_MODEL', '[not set]')}")
-    lines.append(f"  VOICEMODE_WHISPER_PORT: {os.getenv('VOICEMODE_WHISPER_PORT', '[not set]')}")
-    lines.append(f"  VOICEMODE_WHISPER_LANGUAGE: {os.getenv('VOICEMODE_WHISPER_LANGUAGE', '[not set]')}")
-    lines.append(f"  VOICEMODE_WHISPER_MODEL_PATH: {os.getenv('VOICEMODE_WHISPER_MODEL_PATH', '[not set]')}")
-    
-    return "\n".join(lines)
-
-
-@mcp.resource("voice://config/kokoro")
-async def kokoro_configuration() -> str:
-    """
-    Kokoro TTS service configuration.
-    
-    Shows all Kokoro-specific settings including:
-    - Port configuration
-    - Models directory
-    - Cache directory
-    - Default voice selection
-    
-    These settings control how the local Kokoro TTS service operates.
-    """
-    lines = []
-    lines.append("Kokoro Service Configuration")
-    lines.append("=" * 40)
-    lines.append("")
-    
-    lines.append("Current Settings:")
-    lines.append(f"  Port: {KOKORO_PORT}")
-    lines.append(f"  Models Directory: {KOKORO_MODELS_DIR}")
-    lines.append(f"  Cache Directory: {KOKORO_CACHE_DIR}")
-    lines.append(f"  Default Voice: {KOKORO_DEFAULT_VOICE}")
-    lines.append(f"  Endpoint: http://127.0.0.1:{KOKORO_PORT}/v1")
-    lines.append("")
-    
-    lines.append("Environment Variables:")
-    lines.append(f"  VOICEMODE_KOKORO_PORT: {os.getenv('VOICEMODE_KOKORO_PORT', '[not set]')}")
-    lines.append(f"  VOICEMODE_KOKORO_MODELS_DIR: {os.getenv('VOICEMODE_KOKORO_MODELS_DIR', '[not set]')}")
-    lines.append(f"  VOICEMODE_KOKORO_CACHE_DIR: {os.getenv('VOICEMODE_KOKORO_CACHE_DIR', '[not set]')}")
-    lines.append(f"  VOICEMODE_KOKORO_DEFAULT_VOICE: {os.getenv('VOICEMODE_KOKORO_DEFAULT_VOICE', '[not set]')}")
-    
     return "\n".join(lines)
 
 
@@ -210,7 +121,7 @@ def parse_env_file(file_path: Path) -> Dict[str, str]:
     config = {}
     if not file_path.exists():
         return config
-    
+
     try:
         with open(file_path, 'r') as f:
             for line in f:
@@ -226,7 +137,7 @@ def parse_env_file(file_path: Path) -> Dict[str, str]:
                     config[key] = value
     except Exception as e:
         logger.error(f"Error parsing {file_path}: {e}")
-    
+
     return config
 
 
@@ -234,13 +145,13 @@ def parse_env_file(file_path: Path) -> Dict[str, str]:
 async def environment_variables() -> str:
     """
     All voice mode environment variables with current values.
-    
+
     Shows each configuration variable with:
     - Name: The environment variable name
     - Environment Value: Current value from environment
     - Config File Value: Value from ~/.voicemode/voicemode.env (if exists)
     - Description: What the variable controls
-    
+
     This helps identify configuration sources and troubleshoot settings.
     """
     # Parse config file - try new path first, fall back to old
@@ -250,7 +161,7 @@ async def environment_variables() -> str:
         if old_path.exists():
             user_config_path = old_path
     file_config = parse_env_file(user_config_path)
-    
+
     # Define all configuration variables with descriptions
     config_vars = [
         # Core Settings
@@ -262,9 +173,6 @@ async def environment_variables() -> str:
         ("VOICEMODE_SAVE_TRANSCRIPTIONS", "Save transcription files (true/false)"),
         ("VOICEMODE_AUDIO_FEEDBACK", "Enable audio feedback (true/false)"),
         # Provider Settings
-        ("VOICEMODE_PREFER_LOCAL", "Prefer local providers over cloud (true/false)"),
-        ("VOICEMODE_ALWAYS_TRY_LOCAL", "Always attempt local providers (true/false)"),
-        ("VOICEMODE_AUTO_START_KOKORO", "Auto-start Kokoro service (true/false)"),
         ("VOICEMODE_TTS_BASE_URLS", "Comma-separated list of TTS endpoints"),
         ("VOICEMODE_STT_BASE_URLS", "Comma-separated list of STT endpoints"),
         ("VOICEMODE_VOICES", "Comma-separated list of preferred voices"),
@@ -274,17 +182,15 @@ async def environment_variables() -> str:
         ("VOICEMODE_TTS_AUDIO_FORMAT", "Audio format for TTS output"),
         ("VOICEMODE_STT_AUDIO_FORMAT", "Audio format for STT input"),
         # STT Prompt for vocabulary biasing
-        ("VOICEMODE_STT_PROMPT", "Vocabulary hints for Whisper (names, technical terms)"),
-        # Whisper Configuration
-        ("VOICEMODE_WHISPER_MODEL", "Whisper model to use (e.g., large-v2)"),
-        ("VOICEMODE_WHISPER_PORT", "Whisper server port"),
-        ("VOICEMODE_WHISPER_LANGUAGE", "Language for transcription"),
-        ("VOICEMODE_WHISPER_MODEL_PATH", "Path to Whisper models"),
-        # Kokoro Configuration
-        ("VOICEMODE_KOKORO_PORT", "Kokoro server port"),
-        ("VOICEMODE_KOKORO_MODELS_DIR", "Directory for Kokoro models"),
-        ("VOICEMODE_KOKORO_CACHE_DIR", "Directory for Kokoro cache"),
-        ("VOICEMODE_KOKORO_DEFAULT_VOICE", "Default Kokoro voice"),
+        ("VOICEMODE_STT_PROMPT", "Vocabulary hints for STT (names, technical terms)"),
+        # STT Language
+        ("VOICEMODE_STT_LANGUAGE", "Language for transcription (default: auto)"),
+        # ElevenLabs Configuration
+        ("ELEVENLABS_API_KEY", "ElevenLabs API key for TTS/STT"),
+        ("VOICEMODE_ELEVENLABS_TTS_MODEL", "ElevenLabs TTS model (e.g., eleven_v3)"),
+        ("VOICEMODE_ELEVENLABS_TTS_VOICE", "ElevenLabs voice ID"),
+        ("VOICEMODE_ELEVENLABS_STT_MODEL", "ElevenLabs STT model (e.g., scribe_v2_realtime)"),
+        ("VOICEMODE_ELEVENLABS_REALTIME_STT", "Use realtime streaming STT (true/false)"),
         # Silence Detection
         ("VOICEMODE_DISABLE_SILENCE_DETECTION", "Disable silence detection (true/false)"),
         ("VOICEMODE_VAD_AGGRESSIVENESS", "Voice activity detection aggressiveness (0-3)"),
@@ -301,32 +207,30 @@ async def environment_variables() -> str:
         ("VOICEMODE_EVENT_LOG_ENABLED", "Enable event logging (true/false)"),
         ("VOICEMODE_EVENT_LOG_DIR", "Directory for event logs"),
         ("VOICEMODE_EVENT_LOG_ROTATION", "Log rotation policy (daily/weekly/monthly)"),
-        # API Keys
-        ("OPENAI_API_KEY", "OpenAI API key for cloud TTS/STT"),
     ]
-    
+
     result = []
     result.append("Voice Mode Environment Variables")
     result.append("=" * 80)
     result.append("")
-    
+
     for var_name, description in config_vars:
         env_value = os.getenv(var_name)
         config_value = file_config.get(var_name)
-        
+
         # Mask sensitive values
         if 'KEY' in var_name or 'SECRET' in var_name:
             if env_value:
                 env_value = mask_sensitive(env_value, var_name)
             if config_value:
                 config_value = mask_sensitive(config_value, var_name)
-        
+
         result.append(f"{var_name}")
         result.append(f"  Environment: {env_value or '[not set]'}")
         result.append(f"  Config File: {config_value or '[not set]'}")
         result.append(f"  Description: {description}")
         result.append("")
-    
+
     return "\n".join(result)
 
 
@@ -334,11 +238,11 @@ async def environment_variables() -> str:
 async def environment_template() -> str:
     """
     Environment variable template for voice mode configuration.
-    
+
     Provides a ready-to-use template of all available environment variables
     with their current values. This can be saved to ~/.voicemode/voicemode.env and
     customized as needed.
-    
+
     Sensitive values like API keys are masked for security.
     """
     template_lines = [
@@ -354,31 +258,17 @@ async def environment_template() -> str:
         f"export VOICEMODE_SAVE_TRANSCRIPTIONS=\"{str(SAVE_TRANSCRIPTIONS).lower()}\"",
         f"export VOICEMODE_AUDIO_FEEDBACK=\"{str(AUDIO_FEEDBACK_ENABLED).lower()}\"",
         "",
-        "# Provider Settings",
-        f"export VOICEMODE_PREFER_LOCAL=\"{str(PREFER_LOCAL).lower()}\"",
-        f"export VOICEMODE_ALWAYS_TRY_LOCAL=\"{str(ALWAYS_TRY_LOCAL).lower()}\"",
-        f"export VOICEMODE_AUTO_START_KOKORO=\"{str(AUTO_START_KOKORO).lower()}\"",
+        "# ElevenLabs Provider Settings",
         f"export VOICEMODE_TTS_BASE_URLS=\"{','.join(TTS_BASE_URLS)}\"",
         f"export VOICEMODE_STT_BASE_URLS=\"{','.join(STT_BASE_URLS)}\"",
         f"export VOICEMODE_VOICES=\"{','.join(TTS_VOICES)}\"",
         f"export VOICEMODE_TTS_MODELS=\"{','.join(TTS_MODELS)}\"",
+        f"export VOICEMODE_STT_LANGUAGE=\"{STT_LANGUAGE}\"",
         "",
         "# Audio Settings",
         f"export VOICEMODE_AUDIO_FORMAT=\"{AUDIO_FORMAT}\"",
         f"export VOICEMODE_TTS_AUDIO_FORMAT=\"{TTS_AUDIO_FORMAT}\"",
         f"export VOICEMODE_STT_AUDIO_FORMAT=\"{STT_AUDIO_FORMAT}\"",
-        "",
-        "# Whisper Configuration",
-        f"export VOICEMODE_WHISPER_MODEL=\"{WHISPER_MODEL}\"",
-        f"export VOICEMODE_WHISPER_PORT=\"{WHISPER_PORT}\"",
-        f"export VOICEMODE_WHISPER_LANGUAGE=\"{WHISPER_LANGUAGE}\"",
-        f"export VOICEMODE_WHISPER_MODEL_PATH=\"{WHISPER_MODEL_PATH}\"",
-        "",
-        "# Kokoro Configuration",
-        f"export VOICEMODE_KOKORO_PORT=\"{KOKORO_PORT}\"",
-        f"export VOICEMODE_KOKORO_MODELS_DIR=\"{KOKORO_MODELS_DIR}\"",
-        f"export VOICEMODE_KOKORO_CACHE_DIR=\"{KOKORO_CACHE_DIR}\"",
-        f"export VOICEMODE_KOKORO_DEFAULT_VOICE=\"{KOKORO_DEFAULT_VOICE}\"",
         "",
         "# Silence Detection",
         f"export VOICEMODE_DISABLE_SILENCE_DETECTION=\"{str(DISABLE_SILENCE_DETECTION).lower()}\"",
@@ -400,7 +290,7 @@ async def environment_template() -> str:
         f"export VOICEMODE_EVENT_LOG_ROTATION=\"{EVENT_LOG_ROTATION}\"",
         "",
         "# API Keys (masked for security)",
-        f"# export OPENAI_API_KEY=\"{mask_sensitive(OPENAI_API_KEY, 'api_key')}\"",
+        f"# export ELEVENLABS_API_KEY=\"{mask_sensitive(ELEVENLABS_API_KEY, 'api_key')}\"",
     ]
-    
+
     return "\n".join(template_lines)

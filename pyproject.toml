@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Mike Bailey", email = "mike@failmode.com"},
 ]
-keywords = ["mcp", "voice", "livekit", "speech", "tts", "stt", "ai", "llm"]
+keywords = ["mcp", "voice", "speech", "tts", "stt", "ai", "llm", "elevenlabs"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -33,13 +33,12 @@ dependencies = [
     "numpy",
     "sounddevice",
     "scipy",
-    "openai>=1.0.0",
     "pydub",
     "audioop-lts; python_version >= '3.13'",
     "simpleaudio",
     "httpx",
     "websockets>=12.0",  # Required for voicemode connect command
-    "aiohttp",  # Required for Whisper and Kokoro service installers
+    "aiohttp",  # Required for async HTTP operations
     "psutil>=5.9.0",
     "webrtcvad-wheels>=2.0.14",  # Maintained fork with importlib.metadata (no pkg_resources)
     "click>=8.0.0",
@@ -49,18 +48,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-livekit = [
-    "livekit>=0.13.1",
-    "livekit-agents>=0.10.2",
-    "livekit-plugins-openai>=0.10.1",
-    "livekit-plugins-silero>=0.6.5",
-]
-coreml = [
-    "torch>=2.0.0",
-    "coremltools>=7.0",
-    "transformers",
-    "ane-transformers",
-]
 dev = [
     "build>=1.0.0",
     "twine>=4.0.0",
