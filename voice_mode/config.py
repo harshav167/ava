@@ -484,8 +484,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
 ELEVENLABS_TTS_MODEL = os.getenv("VOICEMODE_ELEVENLABS_TTS_MODEL", "eleven_v3")
 ELEVENLABS_TTS_VOICE = os.getenv("VOICEMODE_ELEVENLABS_TTS_VOICE", "k4hP4cQadSZQc0Oar2Ld")
-ELEVENLABS_STT_MODEL = os.getenv("VOICEMODE_ELEVENLABS_STT_MODEL", "scribe_v2")
-ELEVENLABS_USE_REALTIME_STT = os.getenv("VOICEMODE_ELEVENLABS_REALTIME_STT", "false").lower() in ("true", "1", "yes", "on")
+ELEVENLABS_STT_MODEL = os.getenv("VOICEMODE_ELEVENLABS_STT_MODEL", "scribe_v2_realtime")
+ELEVENLABS_USE_REALTIME_STT = os.getenv("VOICEMODE_ELEVENLABS_REALTIME_STT", "true").lower() in ("true", "1", "yes", "on")
 
 # Helper function to parse comma-separated lists
 def parse_comma_list(env_var: str, fallback: str) -> list:
