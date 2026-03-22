@@ -4,6 +4,7 @@ ElevenLabs TTS and STT for VoiceMode.
 All voice synthesis and transcription goes through ElevenLabs.
 """
 
+import asyncio
 import logging
 from typing import Optional, Tuple, Dict, Any
 
@@ -72,19 +73,24 @@ async def elevenlabs_tts(
 
         gen_start = _time.perf_counter()
 
-        for i, chunk_text in enumerate(merged):
-            logger.info(f"ElevenLabs TTS chunk {i+1}/{len(merged)}: {len(chunk_text)} chars")
+        def _generate_and_play(chunks):
+            """Run blocking ElevenLabs convert+play in a thread to avoid freezing the event loop."""
+            for i, chunk_text in enumerate(chunks):
+                logger.info(f"ElevenLabs TTS chunk {i+1}/{len(chunks)}: {len(chunk_text)} chars")
 
-            audio_iterator = el_client.text_to_speech.convert(
-                text=chunk_text,
-                voice_id=el_voice,
-                model_id=ELEVENLABS_TTS_MODEL,
-                output_format="mp3_44100_128",
-                voice_settings=VoiceSettings(speed=speed),
-            )
+                audio_iterator = el_client.text_to_speech.convert(
+                    text=chunk_text,
+                    voice_id=el_voice,
+                    model_id=ELEVENLABS_TTS_MODEL,
+                    output_format="mp3_44100_128",
+                    voice_settings=VoiceSettings(speed=speed),
+                )
 
-            # play() collects all bytes then plays via ffplay — works with all models
-            elevenlabs_play(audio_iterator)
+                # play() collects all bytes then plays via ffplay
+                elevenlabs_play(audio_iterator)
+
+        # Run blocking TTS in a thread so the async event loop isn't frozen
+        await asyncio.to_thread(_generate_and_play, merged)
 
         total_time = _time.perf_counter() - gen_start
 
