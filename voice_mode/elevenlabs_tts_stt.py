@@ -139,7 +139,7 @@ async def simple_stt_failover(
         result = elevenlabs_stt_batch(
             audio_file=audio_file,
             model_id="scribe_v2",
-            language_code=WHISPER_LANGUAGE if WHISPER_LANGUAGE and WHISPER_LANGUAGE != "auto" else None,
+            language_code=WHISPER_LANGUAGE if (WHISPER_LANGUAGE and WHISPER_LANGUAGE != "auto") else "en",
             keyterms=keyterms,
             api_key=ELEVENLABS_API_KEY,
         )

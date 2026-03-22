@@ -58,8 +58,8 @@ async def realtime_transcribe(
         "vad_silence_threshold_secs": min(3.0, max(0.3, vad_silence_threshold)),
     }
 
-    if language_code and language_code != "auto":
-        connect_options["language_code"] = language_code
+    # Always set language — auto-detect often misidentifies accented English
+    connect_options["language_code"] = language_code if (language_code and language_code != "auto") else "en"
 
     logger.info(f"ElevenLabs Realtime STT: connecting (max={max_duration}s, min={min_duration}s)")
 
