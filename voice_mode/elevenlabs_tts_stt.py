@@ -41,8 +41,10 @@ async def elevenlabs_tts(
         import time as _time
         import re
 
-        el_voice = ELEVENLABS_TTS_VOICE
-        logger.info(f"ElevenLabs TTS: voice={el_voice}, model={ELEVENLABS_TTS_MODEL}")
+        # Use function params as overrides, fall back to config defaults
+        el_voice = voice if voice else ELEVENLABS_TTS_VOICE
+        el_model = model if model else ELEVENLABS_TTS_MODEL
+        logger.info(f"ElevenLabs TTS: voice={el_voice}, model={el_model}")
 
         el_client = get_client(ELEVENLABS_API_KEY)
 
@@ -81,7 +83,7 @@ async def elevenlabs_tts(
                 audio_iterator = el_client.text_to_speech.convert(
                     text=chunk_text,
                     voice_id=el_voice,
-                    model_id=ELEVENLABS_TTS_MODEL,
+                    model_id=el_model,
                     output_format="mp3_44100_128",
                     voice_settings=VoiceSettings(speed=speed),
                 )
@@ -104,7 +106,7 @@ async def elevenlabs_tts(
             "base_url": "elevenlabs://tts",
             "provider": "elevenlabs",
             "voice": el_voice,
-            "model": ELEVENLABS_TTS_MODEL,
+            "model": el_model,
             "endpoint": "api.elevenlabs.io/v1/text-to-speech",
         }
         logger.info(f"ElevenLabs TTS succeeded: {total_time:.2f}s")
@@ -117,8 +119,8 @@ async def elevenlabs_tts(
             "attempted_endpoints": [{
                 "endpoint": "api.elevenlabs.io/v1/text-to-speech",
                 "provider": "elevenlabs",
-                "voice": ELEVENLABS_TTS_VOICE,
-                "model": ELEVENLABS_TTS_MODEL,
+                "voice": voice or ELEVENLABS_TTS_VOICE,
+                "model": model or ELEVENLABS_TTS_MODEL,
                 "error": str(e),
             }],
         }
@@ -171,8 +173,8 @@ async def elevenlabs_stt(
         request_start = time.perf_counter()
         result = elevenlabs_stt_batch(
             audio_file=audio_file,
-            model_id="scribe_v2",
-            language_code=STT_LANGUAGE if (STT_LANGUAGE and STT_LANGUAGE != "auto") else "en",
+            model_id=model,
+            language_code=STT_LANGUAGE if (STT_LANGUAGE and STT_LANGUAGE != "auto") else None,
             keyterms=keyterms,
             api_key=ELEVENLABS_API_KEY,
         )

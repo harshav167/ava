@@ -81,14 +81,19 @@ class ProviderRegistry:
             logger.info("Initializing provider registry...")
 
             # Import here to avoid circular imports at module level
-            from .config import TTS_BASE_URLS, STT_BASE_URLS
+            from .config import TTS_BASE_URLS, STT_BASE_URLS, ELEVENLABS_TTS_VOICE, TTS_VOICES
+
+            # Build the voices list from config (configured voice + any extras)
+            voices = list(TTS_VOICES)  # Already a list from parse_comma_list
+            if ELEVENLABS_TTS_VOICE and ELEVENLABS_TTS_VOICE not in voices:
+                voices.insert(0, ELEVENLABS_TTS_VOICE)
 
             # Initialize TTS endpoints
             for url in TTS_BASE_URLS:
                 self.registry["tts"][url] = EndpointInfo(
                     base_url=url,
                     models=ELEVENLABS_TTS_MODELS,
-                    voices=[],  # ElevenLabs voices are referenced by ID, not name
+                    voices=voices,
                     provider_type="elevenlabs"
                 )
 

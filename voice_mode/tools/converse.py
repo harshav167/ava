@@ -251,12 +251,14 @@ async def startup_initialization():
     if voice_mode.config._startup_initialized:
         return
 
-    voice_mode.config._startup_initialized = True
     logger.info("Running startup initialization...")
 
     # Initialize provider registry
     logger.info("Initializing provider registry...")
     await provider_registry.initialize()
+
+    # Only mark as initialized after successful completion
+    voice_mode.config._startup_initialized = True
 
     # Log initial status
     logger.info("Service initialization complete")
@@ -1042,11 +1044,11 @@ set wait_for_conch=true to queue, or try again later.
         speed = TTS_SPEED
         speed_from_config = True
 
-    # Validate speed parameter range
+    # Validate speed parameter range (ElevenLabs supports 0.7-1.2)
     if speed is not None:
-        if not (0.25 <= speed <= 4.0):
+        if not (0.7 <= speed <= 1.2):
             source = " from VOICEMODE_TTS_SPEED environment variable" if speed_from_config else ""
-            return f"❌ Error: speed must be between 0.25 and 4.0 (got {speed}{source})"
+            return f"❌ Error: speed must be between 0.7 and 1.2 (got {speed}{source})"
 
     # Determine effective metrics level (parameter overrides config)
     effective_metrics_level = metrics_level if metrics_level else METRICS_LEVEL
@@ -1355,10 +1357,12 @@ set wait_for_conch=true to queue, or try again later.
 
                 # Track STT-specific metrics (defined here to be in scope for event logging later)
                 stt_metrics = None
+                stt_model_used = "scribe_v2"  # Default; updated below based on path taken
 
                 if use_elevenlabs_realtime:
                     # ElevenLabs Realtime STT: streams mic audio via WebSocket
                     # Replaces both recording AND transcription with a single call
+                    stt_model_used = "scribe_v2_realtime"
                     logger.info(f"🎤 ElevenLabs Realtime STT: listening for up to {listen_duration_max}s...")
 
                     if event_logger:
@@ -1391,6 +1395,7 @@ set wait_for_conch=true to queue, or try again later.
 
                     # If realtime still failed, fall back to batch (record + upload)
                     if isinstance(stt_result, dict) and stt_result.get("error_type") == "connection_failed":
+                        stt_model_used = "scribe_v2"
                         logger.warning("Realtime STT failed twice. Falling back to batch record+transcribe.")
                         # Use the traditional path: record locally, then batch STT
                         audio_data, speech_detected = await asyncio.get_event_loop().run_in_executor(
@@ -1738,7 +1743,7 @@ set wait_for_conch=true to queue, or try again later.
 
                     conversation_logger.log_stt(
                         text=response_text if response_text else "[no speech detected]",
-                        model="scribe_v2_realtime",
+                        model=stt_model_used,
                         provider="elevenlabs",
                         provider_url="api.elevenlabs.io",
                         provider_type="elevenlabs",

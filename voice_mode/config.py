@@ -554,9 +554,20 @@ def reload_configuration():
     load_voicemode_env()
 
     # Update global configuration variables — ElevenLabs only
-    global TTS_VOICES, TTS_MODELS, TTS_BASE_URLS, STT_BASE_URLS
-    TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", "elevenlabs://tts")
-    STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", "elevenlabs://stt")
+    # Mirror the initial load logic: when ELEVENLABS_API_KEY is set and no
+    # explicit env override exists, default to the elevenlabs:// scheme URLs.
+    global TTS_VOICES, TTS_MODELS, TTS_BASE_URLS, STT_BASE_URLS, ELEVENLABS_API_KEY
+    ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY", "")
+
+    if ELEVENLABS_API_KEY and not os.getenv("VOICEMODE_TTS_BASE_URLS"):
+        TTS_BASE_URLS = ["elevenlabs://tts"]
+    else:
+        TTS_BASE_URLS = parse_comma_list("VOICEMODE_TTS_BASE_URLS", "elevenlabs://tts")
+
+    if ELEVENLABS_API_KEY and not os.getenv("VOICEMODE_STT_BASE_URLS"):
+        STT_BASE_URLS = ["elevenlabs://stt"]
+    else:
+        STT_BASE_URLS = parse_comma_list("VOICEMODE_STT_BASE_URLS", "elevenlabs://stt")
     TTS_VOICES = parse_comma_list("VOICEMODE_VOICES", "k4hP4cQadSZQc0Oar2Ld")
     TTS_MODELS = parse_comma_list("VOICEMODE_TTS_MODELS", "eleven_v3")
 

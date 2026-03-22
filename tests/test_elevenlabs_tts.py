@@ -59,8 +59,8 @@ class TestElevenLabsTTSBasic:
 
             success, metrics, config = await elevenlabs_tts(
                 text="Hello world",
-                voice="ignored",
-                model="ignored",
+                voice="caller-voice",
+                model="caller-model",
             )
 
         assert success is True
@@ -68,8 +68,9 @@ class TestElevenLabsTTSBasic:
         assert "generation" in metrics
         assert "playback" in metrics
         assert config["provider"] == "elevenlabs"
-        assert config["voice"] == "test-voice-id"
-        assert config["model"] == "eleven_v3"
+        # Caller params override config defaults
+        assert config["voice"] == "caller-voice"
+        assert config["model"] == "caller-model"
 
         # Only one chunk → one convert call, one play call
         mock_client.text_to_speech.convert.assert_called_once()
@@ -99,8 +100,8 @@ class TestElevenLabsTTSBasic:
     @patch("voice_mode.elevenlabs_tts_stt.ELEVENLABS_TTS_MODEL", "eleven_v3")
     @patch("voice_mode.elevenlabs_tts_stt.ELEVENLABS_TTS_VOICE", "voice-id")
     @patch("voice_mode.elevenlabs_tts_stt.ELEVENLABS_API_KEY", "key")
-    async def test_tts_uses_configured_voice_and_model(self):
-        """convert() must always use the module-level VOICE and MODEL constants."""
+    async def test_tts_uses_caller_params_over_config(self):
+        """convert() must use caller-provided voice/model, falling back to config."""
         mock_client = _make_mock_client()
 
         with (
@@ -113,8 +114,8 @@ class TestElevenLabsTTSBasic:
             await elevenlabs_tts(text="hi", voice="caller-voice", model="caller-model")
 
         call_kwargs = mock_client.text_to_speech.convert.call_args
-        assert call_kwargs.kwargs["voice_id"] == "voice-id"
-        assert call_kwargs.kwargs["model_id"] == "eleven_v3"
+        assert call_kwargs.kwargs["voice_id"] == "caller-voice"
+        assert call_kwargs.kwargs["model_id"] == "caller-model"
 
 
 # ---------------------------------------------------------------------------

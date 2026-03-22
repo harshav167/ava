@@ -348,11 +348,9 @@ def service_install(service_name, force):
       voicemode service install kokoro --force
     """
     if service_name == 'whisper':
-        click.secho("❌ Whisper has been removed. VoiceMode now uses ElevenLabs exclusively.", fg='red')
-        return
+        raise click.ClickException("Whisper has been removed. VoiceMode now uses ElevenLabs exclusively.")
     elif service_name == 'kokoro':
-        click.secho("❌ Kokoro has been removed. VoiceMode now uses ElevenLabs exclusively.", fg='red')
-        return
+        raise click.ClickException("Kokoro has been removed. VoiceMode now uses ElevenLabs exclusively.")
     elif service_name == '_legacy_kokoro':
         raise click.ClickException("Kokoro is not supported. Use ElevenLabs instead.")
         result = asyncio.run(kokoro_install.fn(force_reinstall=force))

@@ -174,8 +174,8 @@ class TestElevenLabsSTTWrapper:
     @patch("voice_mode.elevenlabs_tts_stt.STT_PROMPT", "")
     @patch("voice_mode.elevenlabs_tts_stt.STT_LANGUAGE", "auto")
     @patch("voice_mode.elevenlabs_tts_stt.ELEVENLABS_API_KEY", "k")
-    async def test_stt_auto_language_defaults_to_en(self):
-        """When STT_LANGUAGE is 'auto', we send 'en' to the SDK."""
+    async def test_stt_auto_language_defaults_to_none(self):
+        """When STT_LANGUAGE is 'auto', we send None to let the SDK auto-detect."""
         mock_batch = MagicMock(return_value={"text": "ok", "language": "en", "elapsed_ms": 50})
 
         with patch("voice_mode.elevenlabs_client.elevenlabs_stt_batch", mock_batch):
@@ -184,7 +184,7 @@ class TestElevenLabsSTTWrapper:
             await elevenlabs_stt(audio_file=_audio_file())
 
         call_kwargs = mock_batch.call_args.kwargs
-        assert call_kwargs["language_code"] == "en"
+        assert call_kwargs["language_code"] is None
 
     @patch("voice_mode.elevenlabs_tts_stt.STT_PROMPT", "")
     @patch("voice_mode.elevenlabs_tts_stt.STT_LANGUAGE", "en")
