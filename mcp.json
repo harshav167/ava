@@ -1,14 +1,8 @@
 {
   "mcpServers": {
     "voicemode": {
-      "type": "stdio",
-      "command": "uvx",
-      "args": [
-        "--refresh",
-        "--from",
-        "git+https://github.com/harshav167/ava.git",
-        "voicemode"
-      ]
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp"
     }
   }
 }
