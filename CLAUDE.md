@@ -1,150 +1,94 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## What Is This
 
-## Voice Interaction
+This is **VoiceMode (ava)** — a voice-first AI assistant MCP server. The goal is to create a **Jarvis-like experience** where the AI speaks to you naturally. All communication happens through voice, not text.
 
-Load the voicemode skill for voice conversation support: `/voicemode:voicemode`
+VoiceMode provides MCP tools that enable any AI coding assistant (Claude Code, Factory Droid, or any MCP-compatible client) to have natural voice conversations with the user.
 
-## Project Overview
+## The Jarvis Goal
 
-VoiceMode is a Python package that provides voice interaction capabilities for AI assistants through the Model Context Protocol (MCP). It enables natural voice conversations with Claude Code and other AI coding assistants by integrating speech-to-text (STT) and text-to-speech (TTS) services.
+VoiceMode aims to be the voice layer for AI assistants — like Jarvis from Iron Man. The AI should:
+- **Speak** all responses through the `converse` tool (never output text to chat)
+- **Listen** for the user's spoken response
+- **Converse naturally** — like a real conversation, not a command interface
+- Handle long pauses, interruptions, and natural speech patterns gracefully
 
-## Key Commands
+## MCP Tools
 
-### Development & Testing
-```bash
-# Install in development mode with dependencies
-make dev-install
+| Tool | Description |
+|------|-------------|
+| `converse` | Primary tool. Speak a message via TTS, optionally listen for user's spoken response via STT. |
+| `connect_status` | Check connection status and who's online. Set presence to "available" or "away". |
+| `service` | Manage VoiceMode services (status, start, stop, restart, enable, disable, logs). |
 
-# Run all unit tests
-make test
-# Or directly: uv run pytest tests/ -v --tb=short
+## Recommended Converse Defaults
 
-# Run specific test
-uv run pytest tests/test_voice_mode.py -v
+**ALWAYS use these defaults unless the user explicitly asks otherwise:**
 
-# Clean build artifacts
-make clean
+```
+converse(
+  message="Your message here",
+  speed=1.2,                    # Max ElevenLabs speed
+  listen_duration_min=5,        # Don't cut off mid-sentence
+  listen_duration_max=60,       # Reasonable default
+  wait_for_response=true        # Listen after speaking
+)
 ```
 
-### Building & Publishing
-```bash
-# Build Python package
-make build-package
-
-# Build development version (auto-versioned)
-make build-dev  
-
-# Test package installation
-make test-package
-
-# Release workflow (bumps version, tags, pushes)
-make release
+### For long user input:
+```
+converse(
+  message="Go ahead, I'm listening.",
+  disable_silence_detection=true,
+  listen_duration_max=120,
+  speed=1.2
+)
 ```
 
-### Documentation
-```bash
-# Serve docs locally at http://localhost:8000
-make docs-serve
-
-# Build documentation site
-make docs-build
-
-# Check docs for errors (strict mode)
-make docs-check
+### For announcements (no listening):
+```
+converse(
+  message="Working on that now.",
+  wait_for_response=false,
+  speed=1.2
+)
 ```
 
-## Architecture Overview
+## HTTP Server Setup
 
-### Core Components
+VoiceMode runs as a single HTTP server on port 8765. All clients connect to the same endpoint.
 
-1. **MCP Server (`voice_mode/server.py`)**
-   - FastMCP-based server providing voice tools via stdio transport
-   - Auto-imports all tools, prompts, and resources
-   - Handles FFmpeg availability checks and logging setup
+### MCP Configuration
 
-2. **Tool System (`voice_mode/tools/`)**
-   - **converse.py**: Primary voice conversation tool with TTS/STT integration
-   - **service.py**: Unified service management for Whisper/Kokoro
-   - **providers.py**: Provider discovery and registry management
-   - **devices.py**: Audio device detection and management
-   - Services subdirectory contains install/uninstall tools for Whisper and Kokoro
-   - See [Tool Loading Architecture](docs/reference/tool-loading-architecture.md) for internal details
+```json
+{
+  "mcpServers": {
+    "voicemode": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
+```
 
-3. **Provider System (`voice_mode/providers.py`)**
-   - Dynamic discovery of OpenAI-compatible TTS/STT endpoints
-   - Health checking and failover support
-   - Maintains registry of available voice services
+### Architecture
 
-4. **Configuration (`voice_mode/config.py`)**
-   - Environment-based configuration with sensible defaults
-   - Support for voice preference files (project/user level)
-   - Audio format configuration (PCM, MP3, WAV, FLAC, AAC, Opus)
+- **Server**: Single HTTP MCP server on `http://127.0.0.1:8765/mcp`
+- **Auto-start**: Managed by launchd (macOS) — starts on login
+- **TTS**: ElevenLabs eleven_v3 model with Donna voice
+- **STT**: ElevenLabs Scribe v2 Realtime (WebSocket streaming with server-side VAD)
+- **Audio I/O**: Direct mic/speaker access on the host machine
+- **No external dependencies**: No Whisper, Kokoro, or OpenAI required
 
-5. **Resources (`voice_mode/resources/`)**
-   - MCP resources exposed for client access
-   - Statistics, configuration, changelog, and version information
-   - Whisper model management
+### Environment
 
-### Service Architecture
+Set `ELEVENLABS_API_KEY` in `~/.voicemode/voicemode.env`.
 
-The project supports multiple voice service backends:
-- **OpenAI API**: Cloud-based TTS/STT (requires API key)
-- **Whisper.cpp**: Local speech-to-text service
-- **Kokoro**: Local text-to-speech with multiple voices
+## Key Principles
 
-Services can be installed and managed through MCP tools, with automatic service discovery and health checking.
-
-### Key Design Patterns
-
-1. **OpenAI API Compatibility**: All voice services expose OpenAI-compatible endpoints, enabling transparent switching between providers
-2. **Dynamic Tool Discovery**: Tools are auto-imported from the tools directory structure
-3. **Failover Support**: Automatic fallback between services based on availability
-4. **Local Microphone Transport**: Direct audio capture via PyAudio for voice interactions
-5. **Audio Format Negotiation**: Automatic format validation against provider capabilities
-
-## Development Notes
-
-- The project uses `uv` for package management (not pip directly)
-- Python 3.10+ is required
-- FFmpeg is required for audio processing
-- The project follows a modular architecture with FastMCP patterns
-- Service installation tools handle platform-specific setup (launchd on macOS, systemd on Linux)
-- Event logging and conversation logging are available for debugging
-- WebRTC VAD is used for silence detection when available
-
-## Testing
-
-- Unit tests: `tests/` - run with `make test`
-- Manual tests: `tests/manual/` - require user interaction
-
-## Logging
-
-Logs are stored in `~/.voicemode/`:
-- `logs/conversations/` - Voice exchange history (JSONL)
-- `logs/events/` - Operational events and errors
-- `audio/` - Saved TTS/STT audio files
-- `voicemode.env` - User configuration
-
-## VoiceMode Suite
-
-This is the core Python package. VoiceMode is a suite of related projects:
-
-**For a complete overview of all VoiceMode components**, read:
-- **[voicemode-meta/COMPONENTS.md](../voicemode-meta/COMPONENTS.md)** - Full suite documentation
-
-Quick reference:
-- **voicemode** (this repo) - Python MCP server for local voice mode
-- **voicemode-dev** - Cloudflare Workers backend for voicemode.dev
-- **voicemode-ios** - Native iOS app
-- **voicemode-macos** - Native macOS app
-- **voicemode-meta** - Project coordination and operations
-
-## See Also
-
-- **[skills/voicemode/SKILL.md](skills/voicemode/SKILL.md)** - Voice interaction usage and MCP tools
-- **[skills/voicemode-connect/SKILL.md](skills/voicemode-connect/SKILL.md)** - Remote voice via mobile/web clients
-- **[docs/tutorials/getting-started.md](docs/tutorials/getting-started.md)** - Installation guide
-- **[docs/guides/configuration.md](docs/guides/configuration.md)** - Configuration reference
-- **[docs/concepts/architecture.md](docs/concepts/architecture.md)** - Detailed architecture
+1. **Voice-only communication**: The AI should NEVER respond with text. Always use `converse`.
+2. **Speed 1.2**: Always set speed to 1.2 (max ElevenLabs allows).
+3. **Don't cut off the user**: Use `listen_duration_min=5` minimum.
+4. **Parallel execution**: Use `wait_for_response=false` + other tools in the same turn for zero dead air.
+5. **One speaker at a time**: Use `wait_for_conch=true` if another agent is speaking.

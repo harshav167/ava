@@ -30,6 +30,19 @@ Add to your Claude Code MCP settings (`~/.claude/settings.json`):
 }
 ```
 
+Note: This is separate from local VoiceMode. Local VoiceMode uses HTTP transport on port 8765:
+
+```json
+{
+  "mcpServers": {
+    "voicemode": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
+```
+
 ### 2. Authenticate
 
 When you first use a Connect tool, Claude Code will prompt for OAuth authentication. Sign in with your voicemode.dev account.
@@ -53,9 +66,9 @@ Use the `status` tool to see connected devices, then use `converse` to have a vo
 
 | Feature | Local VoiceMode | VoiceMode Connect |
 |---------|-----------------|-------------------|
-| STT/TTS | Local (Whisper/Kokoro) | Client device (phone/browser) |
-| Setup | Install services | Just add MCP server |
-| Internet | Optional | Required |
+| STT/TTS | ElevenLabs (eleven_v3 / Scribe v2) | Client device (phone/browser) |
+| Setup | HTTP server on port 8765 | Just add MCP server |
+| Internet | Required (ElevenLabs API) | Required |
 | Latency | Lower | Higher |
 | Mobile voice | No | Yes |
 

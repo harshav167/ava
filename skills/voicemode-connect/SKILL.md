@@ -31,6 +31,19 @@ Add to your Droid MCP configuration:
 }
 ```
 
+Note: This is separate from local VoiceMode. Local VoiceMode uses HTTP transport on port 8765:
+
+```json
+{
+  "mcpServers": {
+    "voicemode": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  }
+}
+```
+
 ### 2. Authenticate
 
 When you first use a Connect tool, Droid will prompt for OAuth authentication. Sign in with your voicemode.dev account.

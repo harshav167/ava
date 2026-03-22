@@ -331,18 +331,120 @@ Rewrote `elevenlabs_realtime_stt.py` from scratch using these patterns.
 - Read SDK docs (Context7) before implementing anything
 - Test locally before deploying to MCP
 
-## v2 Roadmap
+## v2 Changes (Completed)
 
-1. **HTTP remote server mode** — `voicemode serve` on port 8765, all clients connect over HTTP instead of each spawning uvx
-2. **Fix VAD / silence detection** — interactive calibration tool to tune parameters for user's mic/environment
-3. **Audio cache for STT resilience** — write recording to cache file, retry STT on failure, never lose user's speech
-4. **ElevenLabs Conversational AI** — real-time duplex WebSocket for barge-in (interrupting AI mid-sentence). Research completed:
+Major architectural overhaul from v1 (uvx/stdio per-client) to v2 (single HTTP server).
+
+### HTTP Remote Server
+- Switched from `uvx` spawning a new process per client to a single HTTP server on port 8765
+- `voicemode serve` starts the server; all clients connect to `http://127.0.0.1:8765/mcp`
+- MCP config changed from `{"command": "uvx", "args": [...]}` to `{"type": "http", "url": "http://127.0.0.1:8765/mcp"}`
+- Removed all uvx/stdio references from documentation and configs
+
+### launchd Auto-Start (macOS)
+- VoiceMode server auto-starts on login via launchd
+- No manual `voicemode serve` needed after initial setup
+- Server persists across terminal sessions
+
+### Tech Debt Cleanup (Phase 2-3)
+- Removed ALL Whisper, Kokoro, and OpenAI dead code
+- Removed `provider_discovery.py` multi-provider detection logic
+- Removed `simple_failover.py` failover chain
+- Cleaned broken imports after removal (`DEFAULT_WHISPER_MODEL`, kokoro/whisper CLI stubs)
+- Hardcoded STT language to English (auto-detect misidentified accents)
+
+### Test Suite
+- Added comprehensive ElevenLabs test suite — 39 tests, all mocked
+- Tests cover TTS (convert+play, chunking, error handling), STT (realtime, batch fallback), and converse tool integration
+
+### TTS Text Chunking
+- Long messages are split into chunks for more responsive TTS playback
+- Prevents timeouts on very long messages
+
+### STT Retry with Batch Fallback
+- If realtime WebSocket STT fails, automatically retries with batch `scribe_v2` API
+- Audio is cached during recording so nothing is lost on retry
+
+### Event Loop Fix
+- Wrapped TTS `convert()` + `play()` in `asyncio.to_thread()` to prevent blocking the event loop
+- Fixed issue where TTS playback would freeze the MCP server
+
+### Repeat Phrase Detection Disabled
+- Disabled the repeat phrase detection feature — it was causing crashes with background noise
+- Will revisit in a future version with a more robust implementation
+
+### CodeRabbit Review Findings
+- Fixed issues #2 through #10 from CodeRabbit automated review
+- Includes error handling improvements, type safety, and code quality fixes
+
+## Testing via mcporter
+
+The `mcporter` tool is used for testing the MCP server locally:
+
+```bash
+# Start the server
+voicemode serve
+
+# In another terminal, test with mcporter
+mcporter http://127.0.0.1:8765/mcp
+```
+
+mcporter connects to the HTTP MCP endpoint and provides an interactive interface for calling tools, inspecting responses, and debugging.
+
+## Current Architecture (v2)
+
+```
+┌─────────────────────────────────────────────────┐
+│                  VoiceMode Server                │
+│            http://127.0.0.1:8765/mcp             │
+│                                                   │
+│  ┌───────────┐  ┌───────────┐  ┌──────────────┐ │
+│  │  converse  │  │  service   │  │connect_status│ │
+│  │   tool     │  │   tool     │  │    tool      │ │
+│  └─────┬─────┘  └───────────┘  └──────────────┘ │
+│        │                                          │
+│  ┌─────▼─────────────────────────────────┐       │
+│  │         ElevenLabs Integration         │       │
+│  │                                        │       │
+│  │  TTS: eleven_v3 → convert() + play()  │       │
+│  │  STT: scribe_v2_realtime (WebSocket)  │       │
+│  │  STT fallback: scribe_v2 (batch API)  │       │
+│  └────────────────────────────────────────┘       │
+│                                                   │
+│  Audio I/O: Direct mic/speaker on host machine    │
+│  Auto-start: launchd (macOS)                      │
+└─────────────────────────────────────────────────┘
+
+Clients connect via HTTP:
+  - Claude Code  → {"type": "http", "url": "http://127.0.0.1:8765/mcp"}
+  - Factory Droid → {"type": "http", "url": "http://127.0.0.1:8765/mcp"}
+  - Any MCP client → same endpoint
+```
+
+## The Jarvis Goal
+
+VoiceMode aims to be the voice layer for AI assistants — like Jarvis from Iron Man:
+
+1. **Voice-only communication** — The AI should NEVER respond with text. Always use `converse`.
+2. **Natural conversation** — Speak, listen, respond. Like talking to a person, not typing commands.
+3. **Speed 1.2** — Always set speed to 1.2 (max ElevenLabs allows). Fast and responsive.
+4. **Don't cut off the user** — Use `listen_duration_min=5` minimum. Respect natural pauses.
+5. **Parallel execution** — Use `wait_for_response=false` + other tools in the same turn for zero dead air.
+6. **One speaker at a time** — Use `wait_for_conch=true` if another agent is speaking.
+
+The ultimate goal: you forget you're talking to an AI. It just works.
+
+## v3 Roadmap
+
+1. **Fix VAD / silence detection** — interactive calibration tool to tune parameters for user's mic/environment
+2. **ElevenLabs Conversational AI** — real-time duplex WebSocket for barge-in (interrupting AI mid-sentence). Research completed:
    - Claude is natively supported as LLM (no custom server needed)
    - Single WebSocket handles ASR + LLM + TTS + turn-taking
    - Barge-in works via proprietary turn-taking model
    - Python SDK: `Conversation` class with `DefaultAudioInterface`
    - Will be a new tool `realtime-converse`, separate from existing `converse`
-5. **Realtime STT optimization** — currently enabled but may have edge cases with connection drops
+3. **Repeat phrase detection** — re-implement with a more robust approach that handles background noise
+4. **Multi-voice support** — different voices for different agents in multi-agent workflows
 
 ## File Changes Summary
 
