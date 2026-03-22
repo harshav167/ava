@@ -23,6 +23,9 @@ SCRIBE_SAMPLE_RATE = 16000
 CHUNK_DURATION_MS = 100  # 100ms audio chunks
 CHUNK_SAMPLES = int(SCRIBE_SAMPLE_RATE * CHUNK_DURATION_MS / 1000)
 
+# Timeout for session to start after WebSocket connects
+SESSION_START_TIMEOUT = 10.0
+
 
 async def realtime_transcribe(
     api_key: str,
@@ -36,27 +39,17 @@ async def realtime_transcribe(
     Stream microphone audio to ElevenLabs Scribe v2 Realtime via WebSocket.
 
     Uses server-side VAD to auto-commit when silence is detected.
-
-    Args:
-        api_key: ElevenLabs API key
-        max_duration: Maximum recording duration in seconds
-        min_duration: Minimum recording before accepting a commit
-        language_code: ISO language code (None for auto-detect)
-        on_partial: Callback for partial transcript updates
-        vad_silence_threshold: Seconds of silence before auto-commit (0.3-3.0)
-
-    Returns:
-        Dict with transcription result or error
     """
     from elevenlabs.client import ElevenLabs
 
+    # Fresh client every call — no connection reuse between calls
     client = ElevenLabs(api_key=api_key)
     committed_text = ""
     error_message = None
     recording = True
+    session_ready = asyncio.Event()
     start_time = time.perf_counter()
 
-    # Build connection options as a dict (SDK expects TypedDict, not class instantiation)
     connect_options = {
         "model_id": "scribe_v2_realtime",
         "audio_format": AudioFormat.PCM_16000,
@@ -71,7 +64,17 @@ async def realtime_transcribe(
     logger.info(f"ElevenLabs Realtime STT: connecting (max={max_duration}s, min={min_duration}s)")
 
     try:
-        connection = await client.speech_to_text.realtime.connect(connect_options)
+        connection = await asyncio.wait_for(
+            client.speech_to_text.realtime.connect(connect_options),
+            timeout=SESSION_START_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.error("ElevenLabs Realtime STT: connection timed out")
+        return {
+            "error_type": "connection_failed",
+            "provider": "elevenlabs",
+            "error": "WebSocket connection timed out",
+        }
     except Exception as e:
         logger.error(f"ElevenLabs Realtime STT: connection failed: {e}")
         return {
@@ -80,9 +83,10 @@ async def realtime_transcribe(
             "error": str(e),
         }
 
-    # Event handlers — callbacks receive raw data dict
+    # Event handlers
     def on_session_started(data):
-        logger.info(f"ElevenLabs Realtime STT: session started")
+        logger.info("ElevenLabs Realtime STT: session started")
+        session_ready.set()
 
     def on_partial_transcript_event(data):
         text = data.get("text", "")
@@ -106,24 +110,47 @@ async def realtime_transcribe(
         error_message = str(data)
         logger.error(f"ElevenLabs Realtime STT error: {data}")
         recording = False
+        session_ready.set()  # Unblock any waiter
 
     def on_close_event():
         nonlocal recording
         logger.info("ElevenLabs Realtime STT: connection closed")
         recording = False
+        session_ready.set()  # Unblock any waiter
 
-    # Register event handlers
+    # Register ALL event handlers BEFORE anything else
     connection.on(RealtimeEvents.SESSION_STARTED, on_session_started)
     connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, on_partial_transcript_event)
     connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, on_committed_transcript_event)
     connection.on(RealtimeEvents.ERROR, on_error_event)
     connection.on(RealtimeEvents.CLOSE, on_close_event)
 
-    # Start streaming microphone audio
+    # Wait for session to actually start before streaming audio
+    try:
+        await asyncio.wait_for(session_ready.wait(), timeout=SESSION_START_TIMEOUT)
+    except asyncio.TimeoutError:
+        logger.error("ElevenLabs Realtime STT: session_started event never received")
+        try:
+            await connection.close()
+        except Exception:
+            pass
+        return {
+            "error_type": "connection_failed",
+            "provider": "elevenlabs",
+            "error": "Session start timed out — server connected but never sent session_started",
+        }
+
+    if error_message:
+        return {
+            "error_type": "connection_failed",
+            "provider": "elevenlabs",
+            "error": error_message,
+        }
+
+    # NOW start mic streaming — session is confirmed ready
     mic_task = asyncio.create_task(_stream_microphone(connection, max_duration, start_time))
 
     try:
-        # Wait for transcription to complete or timeout
         while recording:
             elapsed = time.perf_counter() - start_time
             if elapsed >= max_duration:
@@ -202,7 +229,11 @@ async def _stream_microphone(connection, max_duration: float, start_time: float)
 
                 # Send base64-encoded PCM to WebSocket
                 audio_b64 = base64.b64encode(data.tobytes()).decode("utf-8")
-                await connection.send({"audio_base_64": audio_b64})
+                try:
+                    await connection.send({"audio_base_64": audio_b64})
+                except Exception as e:
+                    logger.error(f"ElevenLabs STT: failed to send audio chunk: {e}")
+                    break
         finally:
             stream.stop()
             stream.close()
