@@ -136,3 +136,4 @@ logs/security/
 # Reference repos (local only, not part of package)
 elevenlabs-python/
 examples/
+fastmcp
