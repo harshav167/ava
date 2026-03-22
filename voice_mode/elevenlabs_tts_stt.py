@@ -32,7 +32,8 @@ async def simple_tts_failover(
 
     try:
         from .elevenlabs_client import get_client
-        from elevenlabs import stream as elevenlabs_play, VoiceSettings
+        from elevenlabs.play import play as elevenlabs_play
+        from elevenlabs import VoiceSettings
         import time as _time
 
         el_voice = ELEVENLABS_TTS_VOICE
@@ -42,18 +43,22 @@ async def simple_tts_failover(
 
         speed = kwargs.get("speed")
         if speed is None:
-            speed = 1.0
+            speed = 1.2  # Default faster playback
 
         gen_start = _time.perf_counter()
-        audio_stream = el_client.text_to_speech.stream(
+
+        # Use convert() which returns complete audio — more reliable than stream()
+        # for all models including eleven_v3 (which doesn't support WebSocket streaming)
+        audio_iterator = el_client.text_to_speech.convert(
             text=text,
             voice_id=el_voice,
             model_id=ELEVENLABS_TTS_MODEL,
+            output_format="mp3_44100_128",
             voice_settings=VoiceSettings(speed=speed),
         )
 
-        # Use the SDK's built-in stream() player (uses mpv/ffplay)
-        elevenlabs_play(audio_stream)
+        # play() collects all bytes then plays via ffplay — works with all models
+        elevenlabs_play(audio_iterator)
         total_time = _time.perf_counter() - gen_start
 
         # SDK stream() combines generation and playback into one blocking call,

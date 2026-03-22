@@ -124,3 +124,11 @@ models/
 # Coverage reports (duplicates removed - already in Python section)
 coverage.xml
 voicemode-install-feedback.md
+
+# Auto Claude generated files
+.auto-claude/
+.auto-claude-security.json
+.auto-claude-status
+.claude_settings.json
+.security-key
+logs/security/
