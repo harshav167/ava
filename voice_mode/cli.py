@@ -18,7 +18,6 @@ except ImportError:
 
 # Import configuration constants
 from voice_mode.config import (
-    DEFAULT_WHISPER_MODEL,
     DEFAULT_LISTEN_DURATION,
     MIN_RECORDING_DURATION,
     SERVE_ALLOW_LOCAL,
@@ -355,7 +354,7 @@ def service_install(service_name, force):
         click.secho("❌ Kokoro has been removed. VoiceMode now uses ElevenLabs exclusively.", fg='red')
         return
     elif service_name == '_legacy_kokoro':
-        from voice_mode.tools.kokoro.install import kokoro_install
+        raise click.ClickException("Kokoro is not supported. Use ElevenLabs instead.")
         result = asyncio.run(kokoro_install.fn(force_reinstall=force))
         if isinstance(result, dict):
             if result.get("success"):
@@ -505,7 +504,7 @@ def health():
 @click.option('--skip-deps', is_flag=True, help='Skip dependency checks (for advanced users)')
 def install(install_dir, port, force, version, auto_enable, skip_deps):
     """Install kokoro-fastapi TTS service."""
-    from voice_mode.tools.kokoro.install import kokoro_install
+    raise click.ClickException("Kokoro is not supported. Use ElevenLabs instead.")
     result = asyncio.run(kokoro_install.fn(
         install_dir=install_dir,
         port=port,
@@ -542,7 +541,7 @@ def install(install_dir, port, force, version, auto_enable, skip_deps):
 @click.confirmation_option(prompt='Are you sure you want to uninstall Kokoro?')
 def uninstall(remove_models, remove_all_data):
     """Uninstall kokoro-fastapi service and optionally remove data."""
-    from voice_mode.tools.kokoro.uninstall import kokoro_uninstall
+    raise click.ClickException("Kokoro is not supported. Use ElevenLabs instead.")
     result = asyncio.run(kokoro_uninstall.fn(
         remove_models=remove_models,
         remove_all_data=remove_all_data
@@ -668,7 +667,7 @@ def whisper_service_health():
 @whisper_service.command("install")
 @click.help_option('-h', '--help')
 @click.option('--install-dir', help='Directory to install whisper.cpp')
-@click.option('--model', default=DEFAULT_WHISPER_MODEL, help=f'Whisper model to download (default: {DEFAULT_WHISPER_MODEL})')
+@click.option('--model', default="base", help=f'Whisper model to download (default: {"base"})')
 @click.option('--use-gpu/--no-gpu', default=None, help='Enable GPU support if available')
 @click.option('--force', '-f', is_flag=True, help='Force reinstall even if already installed')
 @click.option('--version', default='latest', help='Version to install (default: latest)')
@@ -676,7 +675,7 @@ def whisper_service_health():
 @click.option('--skip-deps', is_flag=True, help='Skip dependency checks (for advanced users)')
 def whisper_service_install(install_dir, model, use_gpu, force, version, auto_enable, skip_deps):
     """Install whisper.cpp STT service with automatic system detection."""
-    from voice_mode.tools.whisper.install import whisper_install
+    raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.")
     result = asyncio.run(whisper_install.fn(
         install_dir=install_dir,
         model=model,
@@ -731,7 +730,7 @@ def whisper_service_install(install_dir, model, use_gpu, force, version, auto_en
 @click.confirmation_option(prompt='Are you sure you want to uninstall Whisper?')
 def whisper_service_uninstall(remove_models, remove_all_data):
     """Uninstall whisper.cpp and optionally remove models and data."""
-    from voice_mode.tools.whisper.uninstall import whisper_uninstall
+    raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.")
     result = asyncio.run(whisper_uninstall.fn(
         remove_models=remove_models,
         remove_all_data=remove_all_data
@@ -829,7 +828,7 @@ def whisper_health_alias(ctx):
 @whisper.command("install", hidden=True)
 @click.help_option('-h', '--help')
 @click.option('--install-dir', help='Directory to install whisper.cpp')
-@click.option('--model', default=DEFAULT_WHISPER_MODEL, help=f'Whisper model to download (default: {DEFAULT_WHISPER_MODEL})')
+@click.option('--model', default="base", help=f'Whisper model to download (default: {"base"})')
 @click.option('--use-gpu/--no-gpu', default=None, help='Enable GPU support if available')
 @click.option('--force', '-f', is_flag=True, help='Force reinstall even if already installed')
 @click.option('--version', default='latest', help='Version to install (default: latest)')
@@ -876,7 +875,7 @@ def whisper_model_list():
     - Language support
     - Performance characteristics
     """
-    from voice_mode.tools.whisper.models import (
+    raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.") #
         WHISPER_MODEL_REGISTRY,
         get_model_directory,
         get_active_model,
@@ -960,7 +959,7 @@ def whisper_model_active(model_name):
     Without arguments: Shows the current active model
     With MODEL_NAME: Sets the active model (updates VOICEMODE_WHISPER_MODEL)
     """
-    from voice_mode.tools.whisper.models import (
+    raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.") #
         get_active_model,
         WHISPER_MODEL_REGISTRY,
         is_whisper_model_installed,
@@ -1045,7 +1044,7 @@ def whisper_models():
 
     DEPRECATED: Use 'voicemode whisper model list' instead.
     """
-    from voice_mode.tools.whisper.models import (
+    raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.") #
         WHISPER_MODEL_REGISTRY, 
         get_model_directory,
         get_active_model,
@@ -1121,7 +1120,7 @@ def whisper_models():
 
 @whisper_model.command("install")
 @click.help_option('-h', '--help')
-@click.argument('model', default=DEFAULT_WHISPER_MODEL)
+@click.argument('model', default="base")
 @click.option('--force', '-f', is_flag=True, help='Re-download even if model exists')
 @click.option('--skip-core-ml', is_flag=True, help='Skip Core ML conversion on Apple Silicon')
 def whisper_model_install(model, force, skip_core_ml):
@@ -1134,7 +1133,7 @@ def whisper_model_install(model, force, skip_core_ml):
     medium, medium.en, large-v1, large-v2, large-v3, large-v3-turbo
     """
     import json
-    import voice_mode.tools.whisper.model_install as install_module
+    raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.")
     # Get the actual function from the MCP tool wrapper
     tool = install_module.whisper_model_install
     install_func = tool.fn if hasattr(tool, 'fn') else tool
@@ -1188,7 +1187,7 @@ def whisper_model_remove(model, force):
     
     MODEL is the name of the model to remove (e.g., 'large-v2').
     """
-    from voice_mode.tools.whisper.models import (
+    raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.") #
         WHISPER_MODEL_REGISTRY,
         is_whisper_model_installed,
         get_model_directory,
