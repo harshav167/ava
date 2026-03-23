@@ -82,15 +82,16 @@ async def realtime_transcribe(
         silence_secs = max_duration  # Effectively disabled — record until max_duration
         vad_prob_threshold = 0.3  # Still track VAD but don't act on it
     else:
-        # Exact Osaurus VAD config replicated:
-        # Osaurus high sensitivity: vadThreshold=0.55, silence=0.8s (our aggressiveness 0)
-        # Osaurus medium sensitivity: vadThreshold=0.75, silence=0.5s (our aggressiveness 1-2)
-        # Osaurus low sensitivity: vadThreshold=0.85, silence=0.3s (our aggressiveness 3)
-        # Osaurus base + extended for voice-only (no visual recording indicator)
-        silence_map = {0: 2.0, 1: 1.5, 2: 0.8, 3: 0.5}
-        threshold_map = {0: 0.55, 1: 0.75, 2: 0.75, 3: 0.85}
+        # Osaurus-replicated VAD config:
+        # vadThreshold from SpeechConfiguration.swift (probability that audio is speech)
+        # silenceThresholdSeconds + pauseDuration from SpeechConfiguration.swift
+        # Osaurus has: silence detect (0.3-0.8s) + pauseDuration (1.5s) + confirmationDelay (2.0s)
+        # Total effective silence = silenceThreshold + pauseDuration = 0.5 + 1.5 = 2.0s for medium
+        # We combine these into a single silence_secs since we don't have a visual confirmation UI
+        threshold_map = {0: 0.55, 1: 0.75, 2: 0.75, 3: 0.85}  # Osaurus exact
+        silence_map = {0: 2.3, 1: 2.0, 2: 1.5, 3: 0.8}  # silenceThreshold + pauseDuration combined
         effective_aggressiveness = vad_aggressiveness if vad_aggressiveness is not None else 1
-        silence_secs = silence_map.get(effective_aggressiveness, 1.5)
+        silence_secs = silence_map.get(effective_aggressiveness, 2.0)
         vad_prob_threshold = threshold_map.get(effective_aggressiveness, 0.75)
 
     logger.info(
