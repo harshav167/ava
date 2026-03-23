@@ -72,7 +72,7 @@ class TestSpeedParameter:
                 wait_for_response=False,
                 speed=0.1
             )
-            assert "Error: speed must be between 0.25 and 4.0" in result
+            assert "Error: speed must be between 0.7 and 1.2" in result
             
             # Test too high
             result = await converse(
@@ -80,7 +80,7 @@ class TestSpeedParameter:
                 wait_for_response=False,
                 speed=5.0
             )
-            assert "Error: speed must be between 0.25 and 4.0" in result
+            assert "Error: speed must be between 0.7 and 1.2" in result
     
     @pytest.mark.asyncio
     async def test_speed_none_is_valid(self):
@@ -181,7 +181,7 @@ class TestSpeedParameter:
                     speed=None
                 )
 
-                assert "Error: speed must be between 0.25 and 4.0" in result
+                assert "Error: speed must be between 0.7 and 1.2" in result
                 assert "10.0" in result
                 assert "VOICEMODE_TTS_SPEED environment variable" in result
 
@@ -196,7 +196,7 @@ class TestSpeedParameter:
                     speed=10.0  # Explicit invalid value
                 )
 
-                assert "Error: speed must be between 0.25 and 4.0" in result
+                assert "Error: speed must be between 0.7 and 1.2" in result
                 assert "10.0" in result
                 # Should NOT mention environment variable since it was explicitly provided
                 assert "VOICEMODE_TTS_SPEED" not in result
