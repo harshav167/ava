@@ -36,7 +36,6 @@ async def elevenlabs_tts(
 
     try:
         from .elevenlabs_client import get_client
-        from elevenlabs.play import play as elevenlabs_play
         from elevenlabs import VoiceSettings
         import time as _time
         import re
@@ -76,20 +75,50 @@ async def elevenlabs_tts(
         gen_start = _time.perf_counter()
 
         def _generate_and_play(chunks):
-            """Run blocking ElevenLabs convert+play in a thread to avoid freezing the event loop."""
+            """Run blocking ElevenLabs convert+play in a thread."""
+            import subprocess
+            import tempfile
+            import os
+
             for i, chunk_text in enumerate(chunks):
                 logger.info(f"ElevenLabs TTS chunk {i+1}/{len(chunks)}: {len(chunk_text)} chars")
 
-                audio_iterator = el_client.text_to_speech.convert(
-                    text=chunk_text,
-                    voice_id=el_voice,
-                    model_id=el_model,
-                    output_format="mp3_44100_128",
-                    voice_settings=VoiceSettings(speed=speed),
-                )
+                try:
+                    audio_iterator = el_client.text_to_speech.convert(
+                        text=chunk_text,
+                        voice_id=el_voice,
+                        model_id=el_model,
+                        output_format="mp3_44100_128",
+                        voice_settings=VoiceSettings(speed=speed),
+                    )
 
-                # play() collects all bytes then plays via ffplay
-                elevenlabs_play(audio_iterator)
+                    # Collect audio bytes with timeout protection
+                    audio_bytes = b"".join(audio_iterator)
+                    if not audio_bytes:
+                        logger.warning(f"ElevenLabs TTS chunk {i+1} returned empty audio")
+                        continue
+
+                    # Write to temp file and play with ffplay + timeout
+                    # This prevents ffplay from hanging indefinitely
+                    tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                    tmp.write(audio_bytes)
+                    tmp.close()
+
+                    try:
+                        proc = subprocess.run(
+                            ["ffplay", "-autoexit", "-nodisp", tmp.name],
+                            timeout=120,  # 2 minute max per chunk
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    except subprocess.TimeoutExpired:
+                        logger.error(f"ffplay timed out on chunk {i+1}")
+                    finally:
+                        os.unlink(tmp.name)
+
+                except Exception as e:
+                    logger.error(f"ElevenLabs TTS chunk {i+1} failed: {e}")
+                    # Continue to next chunk instead of crashing
 
         # Run blocking TTS in a thread so the async event loop isn't frozen
         await asyncio.to_thread(_generate_and_play, merged)
