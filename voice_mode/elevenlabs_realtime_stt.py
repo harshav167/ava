@@ -42,7 +42,7 @@ async def realtime_transcribe(
     language_code: Optional[str] = None,
     on_partial: Optional[Callable[[str], None]] = None,
     vad_silence_threshold: float = 2.0,
-    vad_aggressiveness: int = 1,
+    vad_aggressiveness: Optional[int] = None,
     disable_silence_detection: bool = False,
     previous_text: Optional[str] = None,
 ) -> Optional[dict]:
@@ -89,8 +89,9 @@ async def realtime_transcribe(
         # Osaurus base + extended for voice-only (no visual recording indicator)
         silence_map = {0: 2.0, 1: 1.5, 2: 0.8, 3: 0.5}
         threshold_map = {0: 0.55, 1: 0.75, 2: 0.75, 3: 0.85}
-        silence_secs = silence_map.get(vad_aggressiveness, 0.5)
-        vad_prob_threshold = threshold_map.get(vad_aggressiveness, 0.75)
+        effective_aggressiveness = vad_aggressiveness if vad_aggressiveness is not None else 1
+        silence_secs = silence_map.get(effective_aggressiveness, 1.5)
+        vad_prob_threshold = threshold_map.get(effective_aggressiveness, 0.75)
 
     logger.info(
         f"ElevenLabs Realtime STT: connecting (max={max_duration}s, min={min_duration}s, "
