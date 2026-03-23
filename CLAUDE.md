@@ -75,11 +75,24 @@ VoiceMode runs as a single HTTP server on port 8765. All clients connect to the 
 ### Architecture
 
 - **Server**: Single HTTP MCP server on `http://127.0.0.1:8765/mcp`
-- **Auto-start**: Managed by launchd (macOS) — starts on login
-- **TTS**: ElevenLabs eleven_v3 model with Donna voice
-- **STT**: ElevenLabs Scribe v2 Realtime (WebSocket streaming with server-side VAD)
+- **Auto-start**: Managed by launchd (macOS) via `scripts/voicemode-server.sh`
+- **TTS**: ElevenLabs eleven_v3 model with Donna voice, using `convert()` + `play()` via ffplay
+- **STT**: ElevenLabs Scribe v2 Realtime (WebSocket streaming with manual commit mode)
+- **VAD**: Local Silero VAD (ONNX, no PyTorch) for silence detection — sends manual commit when silence exceeds 2.0s threshold
+- **Audio caching**: Recordings cached in memory for crash resilience — if ElevenLabs disconnects mid-stream, cached audio is batch-transcribed
 - **Audio I/O**: Direct mic/speaker access on the host machine
-- **No external dependencies**: No Whisper, Kokoro, or OpenAI required
+
+### Server Management
+
+```bash
+# Via script (manages launchd plist)
+scripts/voicemode-server.sh setup    # Create launchd plist + start
+scripts/voicemode-server.sh start    # Start server
+scripts/voicemode-server.sh stop     # Stop server
+scripts/voicemode-server.sh restart  # Restart server
+scripts/voicemode-server.sh status   # Check status
+scripts/voicemode-server.sh logs     # Tail server logs
+```
 
 ### Environment
 

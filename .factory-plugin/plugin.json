@@ -1,6 +1,6 @@
 {
   "name": "voicemode",
-  "description": "Voice conversations with AI coding assistants using ElevenLabs TTS/STT",
+  "description": "Voice conversations with AI coding assistants using ElevenLabs TTS/STT. HTTP server on port 8765 with local Silero VAD and manual commit mode.",
   "author": {
     "name": "Harsha",
     "email": "harsha@voicemode.dev"

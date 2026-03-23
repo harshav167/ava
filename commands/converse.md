@@ -21,7 +21,7 @@ Call the converse tool with your message:
 converse(message="Your message here", speed=1.2, listen_duration_min=5, listen_duration_max=60)
 ```
 
-This speaks the message via ElevenLabs TTS (eleven_v3 model), then listens for the user's response and transcribes it with ElevenLabs Scribe v2 Realtime.
+This speaks the message via ElevenLabs TTS (eleven_v3 model), then listens for the user's response via ElevenLabs Scribe v2 Realtime STT with local Silero VAD and manual commit mode.
 
 ## Mandatory Defaults
 
@@ -43,7 +43,7 @@ This speaks the message via ElevenLabs TTS (eleven_v3 model), then listens for t
 | `listen_duration_max` | `60` | Max seconds to listen |
 | `listen_duration_min` | `5` | Min seconds before silence detection triggers |
 | `disable_silence_detection` | `false` | Set `true` to record for full duration without auto-stopping |
-| `vad_aggressiveness` | `1` | VAD strictness (0-3). Lower = more tolerant of pauses. |
+| `vad_aggressiveness` | `1` | Local Silero VAD strictness (0-3). Maps to probability thresholds: 0=0.3, 1=0.5, 2=0.7, 3=0.85. Lower = more tolerant of pauses. |
 | `metrics_level` | `summary` | Output detail: `minimal`, `summary`, or `verbose` |
 | `wait_for_conch` | `false` | Queue behind another speaker if one is active |
 
@@ -92,9 +92,16 @@ If the user indicates they want to dictate, give detailed instructions, or speak
 
 Only one agent can use the mic at a time. If you get "User is currently speaking", set `wait_for_conch=true`.
 
+## How STT Works
+
+1. Audio streams to ElevenLabs Scribe v2 Realtime via WebSocket for transcription
+2. Local Silero VAD (ONNX, no PyTorch) runs on each audio chunk to detect speech/silence
+3. When silence exceeds 2.0s threshold (configurable via `VOICEMODE_SILENCE_THRESHOLD_MS`), a manual commit is sent to ElevenLabs
+4. Audio is cached in memory for crash resilience -- if ElevenLabs disconnects, cached audio is batch-transcribed
+
 ## MCP Setup
 
-VoiceMode runs as an HTTP server on port 8765. Connect via HTTP transport:
+VoiceMode runs as an HTTP server on port 8765, managed by launchd via `scripts/voicemode-server.sh`.
 
 ```json
 {

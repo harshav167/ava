@@ -131,11 +131,12 @@ VoiceMode runs as a single HTTP server on port 8765. All clients connect to the 
 ### Architecture
 
 - **Server**: Single HTTP MCP server on `http://127.0.0.1:8765/mcp`
-- **Auto-start**: Managed by launchd (macOS) — starts on login
-- **TTS**: ElevenLabs eleven_v3 model with Donna voice
-- **STT**: ElevenLabs Scribe v2 Realtime (WebSocket streaming with server-side VAD)
+- **Auto-start**: Managed by launchd (macOS) via `scripts/voicemode-server.sh`
+- **TTS**: ElevenLabs eleven_v3 model with Donna voice, using `convert()` + `play()` via ffplay
+- **STT**: ElevenLabs Scribe v2 Realtime (WebSocket streaming with manual commit mode)
+- **VAD**: Local Silero VAD (ONNX, no PyTorch) for silence detection — sends manual commit when silence exceeds 2.0s threshold
+- **Audio caching**: Recordings cached in memory for crash resilience — if ElevenLabs disconnects mid-stream, cached audio is batch-transcribed
 - **Audio I/O**: Direct mic/speaker access on the host machine
-- **No external dependencies**: No Whisper, Kokoro, or OpenAI required
 
 ### Environment
 
@@ -194,10 +195,16 @@ Set `ELEVENLABS_API_KEY` in `~/.voicemode/voicemode.env`.
 - Repeat phrase detection — false positives from background audio
 
 ### What Needs Testing
-- VAD aggressiveness 0 vs 1 — which is better for natural conversation
-- Silence threshold 1.5s vs 2.0s — faster response vs fewer false stops
 - ElevenLabs Conversational AI — duplex WebSocket with barge-in support
-- Silero VAD integration — ML-based VAD vs WebRTC VAD
+- VAD aggressiveness fine-tuning — 0 vs 1 for different environments
+- Silence threshold tuning — 1.5s vs 2.0s for faster response vs fewer false stops
+
+### What's Implemented
+- Local Silero VAD (ONNX, no PyTorch) — replaces WebRTC VAD as primary
+- Manual commit mode — Silero detects silence, sends commit to ElevenLabs
+- 2.0s silence threshold (configurable via `VOICEMODE_SILENCE_THRESHOLD_MS`)
+- Audio caching for crash resilience — cached recordings batch-transcribed on disconnect
+- VAD aggressiveness 1 default — maps to Silero probability threshold 0.5
 
 ## Future: Always-On Wake Word Detection
 
@@ -220,11 +227,11 @@ Research is ongoing — see the always-on VAD research agent output.
 
 To verify the instruction set works:
 
-1. Start VoiceMode server: `voicemode serve`
+1. Start VoiceMode server: `scripts/voicemode-server.sh start` (or `setup` for first time)
 2. Open Claude Code in a project with this AGENTS.md
 3. Type anything — the AI should immediately use `converse` to speak
 4. The AI should never output text to the chat
-5. The AI should use the correct defaults (speed=1.2, etc.)
+5. The AI should use the correct defaults (speed=1.2, listen_duration_min=5, etc.)
 
 Test via mcporter:
 ```bash
