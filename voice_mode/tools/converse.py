@@ -14,13 +14,29 @@ import sounddevice as sd
 from scipy.io.wavfile import write
 from pydub import AudioSegment
 
-# Optional webrtcvad for silence detection
+# Voice Activity Detection — prefer Silero (neural network, probability scores)
+# with WebRTC VAD as fallback (binary signal processing)
+SILERO_VAD_AVAILABLE = False
+try:
+    from voice_mode.silero_vad import (
+        get_silero_vad,
+        get_threshold_for_aggressiveness,
+        SILERO_SAMPLE_RATE,
+        SILERO_CHUNK_SAMPLES,
+    )
+    # Don't load the model at import time — lazy load on first use
+    SILERO_VAD_AVAILABLE = True
+except ImportError:
+    SILERO_VAD_AVAILABLE = False
+
 try:
     import webrtcvad
-    VAD_AVAILABLE = True
-except ImportError as e:
+    WEBRTC_VAD_AVAILABLE = True
+except ImportError:
     webrtcvad = None
-    VAD_AVAILABLE = False
+    WEBRTC_VAD_AVAILABLE = False
+
+VAD_AVAILABLE = SILERO_VAD_AVAILABLE or WEBRTC_VAD_AVAILABLE
 
 from fastmcp import Context
 
@@ -702,16 +718,18 @@ def record_audio(duration: float) -> np.ndarray:
 
 def record_audio_with_silence_detection(max_duration: float, disable_silence_detection: bool = False, min_duration: float = 0.0, vad_aggressiveness: Optional[int] = None) -> Tuple[np.ndarray, bool]:
     """Record audio from microphone with automatic silence detection.
-    
-    Uses WebRTC VAD to detect when the user stops speaking and automatically
-    stops recording after a configurable silence threshold.
-    
+
+    Uses Silero VAD (neural network, probability-based) to detect when the user
+    stops speaking and automatically stops recording after a configurable silence
+    threshold. Falls back to WebRTC VAD if Silero is unavailable.
+
     Args:
         max_duration: Maximum recording duration in seconds
         disable_silence_detection: If True, disables silence detection and uses fixed duration recording
         min_duration: Minimum recording duration before silence detection can stop (default: 0.0)
-        vad_aggressiveness: VAD aggressiveness level (0-3). If None, uses VAD_AGGRESSIVENESS from config
-        
+        vad_aggressiveness: VAD aggressiveness level (0-3). If None, uses VAD_AGGRESSIVENESS from config.
+            Maps to Silero probability thresholds: 0=0.3, 1=0.5, 2=0.7, 3=0.85
+
     Returns:
         Tuple of (audio_data, speech_detected):
             - audio_data: Numpy array of recorded audio samples
@@ -721,7 +739,7 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
     logger.info(f"record_audio_with_silence_detection called - VAD_AVAILABLE={VAD_AVAILABLE}, DISABLE_SILENCE_DETECTION={DISABLE_SILENCE_DETECTION}, min_duration={min_duration}")
     
     if not VAD_AVAILABLE:
-        logger.warning("webrtcvad not available, falling back to fixed duration recording")
+        logger.warning("No VAD available (neither Silero nor WebRTC), falling back to fixed duration recording")
         # For fallback, assume speech is present since we can't detect
         return (record_audio(max_duration), True)
     
@@ -736,19 +754,40 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
     logger.info(f"🎤 Recording with silence detection (max {max_duration}s)...")
     
     try:
-        # Initialize VAD with provided aggressiveness or default
+        # Initialize VAD — prefer Silero, fallback to WebRTC
         effective_vad_aggressiveness = vad_aggressiveness if vad_aggressiveness is not None else VAD_AGGRESSIVENESS
-        vad = webrtcvad.Vad(effective_vad_aggressiveness)
-        
-        # Calculate chunk size (must be 10, 20, or 30ms worth of samples)
-        chunk_samples = int(SAMPLE_RATE * VAD_CHUNK_DURATION_MS / 1000)
-        chunk_duration_s = VAD_CHUNK_DURATION_MS / 1000
-        
-        # WebRTC VAD only supports 8000, 16000, or 32000 Hz
-        # We'll tell VAD we're using 16kHz even though we're recording at 24kHz
-        # This requires adjusting our chunk size to match what VAD expects
-        vad_sample_rate = 16000
-        vad_chunk_samples = int(vad_sample_rate * VAD_CHUNK_DURATION_MS / 1000)
+        use_silero = False
+        silero_vad_instance = None
+        silero_threshold = 0.5
+
+        if SILERO_VAD_AVAILABLE:
+            silero_vad_instance = get_silero_vad()
+            if silero_vad_instance is not None:
+                use_silero = True
+                silero_threshold = get_threshold_for_aggressiveness(effective_vad_aggressiveness)
+                silero_vad_instance.reset_states()
+                logger.info(f"Using Silero VAD (threshold={silero_threshold}, aggressiveness={effective_vad_aggressiveness})")
+
+        if not use_silero and WEBRTC_VAD_AVAILABLE:
+            vad = webrtcvad.Vad(effective_vad_aggressiveness)
+            logger.info(f"Using WebRTC VAD fallback (aggressiveness={effective_vad_aggressiveness})")
+        elif not use_silero:
+            logger.warning("No VAD backend available, falling back to fixed duration recording")
+            return (record_audio(max_duration), True)
+
+        if use_silero:
+            # Silero VAD: 512 samples at 16kHz = 32ms per chunk
+            vad_sample_rate = SILERO_SAMPLE_RATE
+            vad_chunk_samples = SILERO_CHUNK_SAMPLES
+            # Calculate recording chunk size at native sample rate to match 32ms
+            chunk_duration_s = vad_chunk_samples / vad_sample_rate  # 0.032s
+            chunk_samples = int(SAMPLE_RATE * chunk_duration_s)
+        else:
+            # WebRTC VAD: 10/20/30ms chunks, requires 8/16/32kHz
+            chunk_samples = int(SAMPLE_RATE * VAD_CHUNK_DURATION_MS / 1000)
+            chunk_duration_s = VAD_CHUNK_DURATION_MS / 1000
+            vad_sample_rate = 16000
+            vad_chunk_samples = int(vad_sample_rate * VAD_CHUNK_DURATION_MS / 1000)
         
         # Recording state
         chunks = []
@@ -767,20 +806,25 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
         original_stdout = sys.stdout
         original_stderr = sys.stderr
         
-        logger.debug(f"VAD config - Aggressiveness: {effective_vad_aggressiveness} (param: {vad_aggressiveness}, default: {VAD_AGGRESSIVENESS}), "
+        vad_backend = "Silero" if use_silero else "WebRTC"
+        chunk_duration_ms = chunk_duration_s * 1000
+        logger.debug(f"VAD config - Backend: {vad_backend}, Aggressiveness: {effective_vad_aggressiveness} (param: {vad_aggressiveness}, default: {VAD_AGGRESSIVENESS}), "
                     f"Silence threshold: {SILENCE_THRESHOLD_MS}ms, "
                     f"Min duration: {MIN_RECORDING_DURATION}s, "
                     f"Initial grace period: {INITIAL_SILENCE_GRACE_PERIOD}s")
-        
+
         if VAD_DEBUG:
             logger.info(f"[VAD_DEBUG] Starting VAD recording with config:")
+            logger.info(f"[VAD_DEBUG]   Backend: {vad_backend}")
+            if use_silero:
+                logger.info(f"[VAD_DEBUG]   Silero threshold: {silero_threshold} (aggressiveness={effective_vad_aggressiveness})")
             logger.info(f"[VAD_DEBUG]   max_duration: {max_duration}s")
             logger.info(f"[VAD_DEBUG]   min_duration: {min_duration}s")
             logger.info(f"[VAD_DEBUG]   effective_min_duration: {max(MIN_RECORDING_DURATION, min_duration)}s")
             logger.info(f"[VAD_DEBUG]   VAD aggressiveness: {effective_vad_aggressiveness}")
             logger.info(f"[VAD_DEBUG]   Silence threshold: {SILENCE_THRESHOLD_MS}ms")
             logger.info(f"[VAD_DEBUG]   Sample rate: {SAMPLE_RATE}Hz (VAD using {vad_sample_rate}Hz)")
-            logger.info(f"[VAD_DEBUG]   Chunk duration: {VAD_CHUNK_DURATION_MS}ms")
+            logger.info(f"[VAD_DEBUG]   Chunk duration: {chunk_duration_ms:.0f}ms")
         
         def audio_callback(indata, frames, time, status):
             """Callback for continuous audio stream"""
@@ -821,29 +865,48 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
                         # Flatten for consistency
                         chunk_flat = chunk.flatten()
                         chunks.append(chunk_flat)
-                        
-                        # For VAD, we need to downsample from 24kHz to 16kHz
-                        # Use scipy's resample for proper downsampling
-                        from scipy import signal
-                        # Calculate the number of samples we need after resampling
+
+                        # Downsample from native rate (e.g. 24kHz) to VAD rate (16kHz)
+                        from scipy import signal as sp_signal
                         resampled_length = int(len(chunk_flat) * vad_sample_rate / SAMPLE_RATE)
-                        vad_chunk = signal.resample(chunk_flat, resampled_length)
+                        vad_chunk = sp_signal.resample(chunk_flat, resampled_length)
                         # Take exactly the number of samples VAD expects
-                        vad_chunk = vad_chunk[:vad_chunk_samples].astype(np.int16)
-                        chunk_bytes = vad_chunk.tobytes()
-                        
+                        vad_chunk = vad_chunk[:vad_chunk_samples]
+
                         # Check if chunk contains speech
                         try:
-                            is_speech = vad.is_speech(chunk_bytes, vad_sample_rate)
-                            if VAD_DEBUG:
-                                # Log VAD decision every 500ms for less spam
-                                if int(recording_duration * 1000) % 500 == 0:
-                                    rms = np.sqrt(np.mean(chunk.astype(float)**2))
-                                    logger.info(f"[VAD_DEBUG] t={recording_duration:.1f}s: speech={is_speech}, RMS={rms:.0f}, state={'WAITING' if not speech_detected else 'ACTIVE'}")
+                            if use_silero:
+                                # Silero VAD returns probability 0.0-1.0
+                                speech_prob = silero_vad_instance(
+                                    vad_chunk.astype(np.int16), vad_sample_rate
+                                )
+                                is_speech = speech_prob >= silero_threshold
+                                if VAD_DEBUG:
+                                    if int(recording_duration * 1000) % 500 < chunk_duration_ms:
+                                        rms = np.sqrt(np.mean(chunk.astype(float)**2))
+                                        logger.info(
+                                            f"[VAD_DEBUG] t={recording_duration:.1f}s: "
+                                            f"prob={speech_prob:.3f} (threshold={silero_threshold}), "
+                                            f"speech={is_speech}, RMS={rms:.0f}, "
+                                            f"state={'WAITING' if not speech_detected else 'ACTIVE'}"
+                                        )
+                            else:
+                                # WebRTC VAD returns boolean
+                                vad_chunk_int16 = vad_chunk.astype(np.int16)
+                                chunk_bytes = vad_chunk_int16.tobytes()
+                                is_speech = vad.is_speech(chunk_bytes, vad_sample_rate)
+                                if VAD_DEBUG:
+                                    if int(recording_duration * 1000) % 500 < chunk_duration_ms:
+                                        rms = np.sqrt(np.mean(chunk.astype(float)**2))
+                                        logger.info(
+                                            f"[VAD_DEBUG] t={recording_duration:.1f}s: "
+                                            f"speech={is_speech}, RMS={rms:.0f}, "
+                                            f"state={'WAITING' if not speech_detected else 'ACTIVE'}"
+                                        )
                         except Exception as vad_e:
                             logger.warning(f"VAD error: {vad_e}, treating as speech")
                             is_speech = True
-                        
+
                         # State machine for speech detection
                         if not speech_detected:
                             # WAITING_FOR_SPEECH state
@@ -862,11 +925,11 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
                                 silence_duration_ms = 0
                             else:
                                 # SILENCE_AFTER_SPEECH state - accumulate silence
-                                silence_duration_ms += VAD_CHUNK_DURATION_MS
-                                if VAD_DEBUG and silence_duration_ms % 100 == 0:  # More frequent logging in debug mode
-                                    logger.info(f"[VAD_DEBUG] Accumulating silence: {silence_duration_ms}/{SILENCE_THRESHOLD_MS}ms, t={recording_duration:.1f}s")
-                                elif silence_duration_ms % 200 == 0:  # Log every 200ms
-                                    logger.debug(f"Silence: {silence_duration_ms}ms")
+                                silence_duration_ms += chunk_duration_ms
+                                if VAD_DEBUG and silence_duration_ms % 100 < chunk_duration_ms:
+                                    logger.info(f"[VAD_DEBUG] Accumulating silence: {silence_duration_ms:.0f}/{SILENCE_THRESHOLD_MS}ms, t={recording_duration:.1f}s")
+                                elif silence_duration_ms % 200 < chunk_duration_ms:
+                                    logger.debug(f"Silence: {silence_duration_ms:.0f}ms")
                                 
                                 # Check if we should stop due to silence threshold
                                 # Use the larger of MIN_RECORDING_DURATION (global) or min_duration (parameter)
@@ -878,7 +941,7 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
                                         logger.info(f"[VAD_DEBUG] STOP: recording_duration={recording_duration:.1f}s >= min_duration={effective_min_duration}s")
                                     stop_recording = True
                                 elif VAD_DEBUG and recording_duration < effective_min_duration:
-                                    if int(recording_duration * 1000) % 500 == 0:  # Log every 500ms
+                                    if int(recording_duration * 1000) % 500 < chunk_duration_ms:  # Log every ~500ms
                                         logger.info(f"[VAD_DEBUG] Min duration not met: {recording_duration:.1f}s < {effective_min_duration}s")
                         
                         recording_duration += chunk_duration_s

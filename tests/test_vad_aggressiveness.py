@@ -18,81 +18,128 @@ from voice_mode.config import (
     VAD_CHUNK_DURATION_MS,
     VAD_AGGRESSIVENESS
 )
+from voice_mode.silero_vad import AGGRESSIVENESS_THRESHOLDS, get_threshold_for_aggressiveness
 
 
 class TestVADAggressiveness:
     """Test VAD aggressiveness parameter functionality."""
-    
+
     @pytest.fixture
-    def mock_vad(self):
-        """Mock webrtcvad.Vad class."""
+    def mock_silero_vad(self):
+        """Mock Silero VAD for testing."""
+        mock_instance = MagicMock()
+        mock_instance.return_value = 0.8  # Default: speech detected
+        mock_instance.reset_states = MagicMock()
+        with patch('voice_mode.tools.converse.get_silero_vad', return_value=mock_instance) as mock_get:
+            with patch('voice_mode.tools.converse.SILERO_VAD_AVAILABLE', True):
+                yield mock_instance
+
+    @pytest.fixture
+    def mock_webrtc_vad(self):
+        """Mock webrtcvad.Vad class for WebRTC fallback testing."""
         with patch('voice_mode.tools.converse.webrtcvad') as mock_webrtcvad:
             mock_vad_instance = MagicMock()
             mock_vad_instance.is_speech.return_value = True
             mock_webrtcvad.Vad.return_value = mock_vad_instance
             yield mock_webrtcvad
-    
+
     @pytest.fixture
     def mock_audio_recording(self):
         """Mock audio recording functions."""
         with patch('voice_mode.tools.converse.sd') as mock_sd:
-            # Create a simple audio chunk
-            chunk = np.random.randint(-1000, 1000, 
-                                    size=int(SAMPLE_RATE * VAD_CHUNK_DURATION_MS / 1000), 
-                                    dtype=np.int16)
-            
             # Setup InputStream context manager
             mock_stream = MagicMock()
             mock_sd.InputStream.return_value.__enter__.return_value = mock_stream
-            
             yield mock_sd
-    
-    def test_vad_aggressiveness_parameter_override(self, mock_vad, mock_audio_recording):
-        """Test that vad_aggressiveness parameter overrides the default."""
-        # Test with different aggressiveness levels
-        for aggressiveness in [0, 1, 2, 3]:
-            # Reset the mock
-            mock_vad.reset_mock()
-            
-            # Call with specific aggressiveness
-            with patch('voice_mode.tools.converse.VAD_AVAILABLE', True):
-                # We need to mock the audio queue behavior
-                with patch('queue.Queue') as mock_queue:
-                    # Make the queue return some data then timeout
-                    mock_queue_instance = MagicMock()
-                    mock_queue_instance.get.side_effect = [
-                        np.zeros((480, 1), dtype=np.int16),  # One chunk
-                        Exception("Timeout")  # Stop the loop
-                    ]
-                    mock_queue.return_value = mock_queue_instance
-                    
-                    try:
-                        record_audio_with_silence_detection(
-                            max_duration=1.0,
-                            vad_aggressiveness=aggressiveness
-                        )
-                    except:
-                        pass  # Expected due to our mock setup
-            
-            # Verify VAD was initialized with the correct aggressiveness
-            mock_vad.Vad.assert_called_with(aggressiveness)
-    
-    def test_vad_aggressiveness_uses_default_when_none(self, mock_vad, mock_audio_recording):
-        """Test that None vad_aggressiveness uses the default from config."""
+
+    def test_silero_threshold_mapping(self):
+        """Test that aggressiveness maps to correct Silero thresholds."""
+        assert get_threshold_for_aggressiveness(0) == 0.3
+        assert get_threshold_for_aggressiveness(1) == 0.5
+        assert get_threshold_for_aggressiveness(2) == 0.7
+        assert get_threshold_for_aggressiveness(3) == 0.85
+        # Unknown value should default to 0.5
+        assert get_threshold_for_aggressiveness(99) == 0.5
+
+    def test_silero_used_when_available(self, mock_silero_vad, mock_audio_recording):
+        """Test that Silero VAD is preferred over WebRTC when available."""
         with patch('voice_mode.tools.converse.VAD_AVAILABLE', True):
             with patch('queue.Queue') as mock_queue:
                 mock_queue_instance = MagicMock()
                 mock_queue_instance.get.side_effect = Exception("Timeout")
                 mock_queue.return_value = mock_queue_instance
-                
+
                 try:
                     record_audio_with_silence_detection(
                         max_duration=1.0,
-                        vad_aggressiveness=None
+                        vad_aggressiveness=2
                     )
-                except:
+                except Exception:
                     pass
-        
+
+        # Silero VAD should have been initialized (reset_states called)
+        mock_silero_vad.reset_states.assert_called_once()
+
+    def test_webrtc_fallback_when_silero_unavailable(self, mock_webrtc_vad, mock_audio_recording):
+        """Test that WebRTC VAD is used when Silero is not available."""
+        with patch('voice_mode.tools.converse.SILERO_VAD_AVAILABLE', False):
+            with patch('voice_mode.tools.converse.WEBRTC_VAD_AVAILABLE', True):
+                with patch('voice_mode.tools.converse.VAD_AVAILABLE', True):
+                    with patch('queue.Queue') as mock_queue:
+                        mock_queue_instance = MagicMock()
+                        mock_queue_instance.get.side_effect = Exception("Timeout")
+                        mock_queue.return_value = mock_queue_instance
+
+                        try:
+                            record_audio_with_silence_detection(
+                                max_duration=1.0,
+                                vad_aggressiveness=2
+                            )
+                        except Exception:
+                            pass
+
+        # WebRTC VAD should have been initialized with the aggressiveness level
+        mock_webrtc_vad.Vad.assert_called_with(2)
+
+    def test_webrtc_fallback_uses_default_aggressiveness(self, mock_webrtc_vad, mock_audio_recording):
+        """Test that WebRTC fallback uses default aggressiveness when None."""
+        with patch('voice_mode.tools.converse.SILERO_VAD_AVAILABLE', False):
+            with patch('voice_mode.tools.converse.WEBRTC_VAD_AVAILABLE', True):
+                with patch('voice_mode.tools.converse.VAD_AVAILABLE', True):
+                    with patch('queue.Queue') as mock_queue:
+                        mock_queue_instance = MagicMock()
+                        mock_queue_instance.get.side_effect = Exception("Timeout")
+                        mock_queue.return_value = mock_queue_instance
+
+                        try:
+                            record_audio_with_silence_detection(
+                                max_duration=1.0,
+                                vad_aggressiveness=None
+                            )
+                        except Exception:
+                            pass
+
         # Should use the default VAD_AGGRESSIVENESS from config
-        mock_vad.Vad.assert_called_with(VAD_AGGRESSIVENESS)
-    
+        mock_webrtc_vad.Vad.assert_called_with(VAD_AGGRESSIVENESS)
+
+    def test_silero_aggressiveness_parameter_override(self, mock_silero_vad, mock_audio_recording):
+        """Test that vad_aggressiveness parameter maps to Silero thresholds."""
+        with patch('voice_mode.tools.converse.VAD_AVAILABLE', True):
+            with patch('voice_mode.tools.converse.get_threshold_for_aggressiveness') as mock_threshold:
+                mock_threshold.return_value = 0.7
+
+                with patch('queue.Queue') as mock_queue:
+                    mock_queue_instance = MagicMock()
+                    mock_queue_instance.get.side_effect = Exception("Timeout")
+                    mock_queue.return_value = mock_queue_instance
+
+                    try:
+                        record_audio_with_silence_detection(
+                            max_duration=1.0,
+                            vad_aggressiveness=2
+                        )
+                    except Exception:
+                        pass
+
+                # Verify threshold was requested for aggressiveness level 2
+                mock_threshold.assert_called_with(2)

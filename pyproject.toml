@@ -40,7 +40,8 @@ dependencies = [
     "websockets>=12.0",  # Required for voicemode connect command
     "aiohttp",  # Required for async HTTP operations
     "psutil>=5.9.0",
-    "webrtcvad-wheels>=2.0.14",  # Maintained fork with importlib.metadata (no pkg_resources)
+    "webrtcvad-wheels>=2.0.14",  # Maintained fork with importlib.metadata (no pkg_resources) — fallback VAD
+    "onnxruntime>=1.16.1",  # Silero VAD ONNX inference (lightweight, no PyTorch)
     "click>=8.0.0",
     "pyyaml>=6.0.0",
     "keyring>=25.0.0",
