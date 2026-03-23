@@ -3,6 +3,10 @@
     "voicemode": {
       "type": "http",
       "url": "http://127.0.0.1:8765/mcp"
+    },
+    "osaurus": {
+      "command": "osaurus",
+      "args": ["mcp"]
     }
   }
 }
