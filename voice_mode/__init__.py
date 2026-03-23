@@ -62,3 +62,8 @@ __all__ = [
     "LibraryStats",
     "FileScanner",
 ]
+
+# Make submodules patchable (needed for unittest.mock.patch)
+from . import elevenlabs_client  # noqa: E402, F401
+from . import elevenlabs_tts_stt  # noqa: E402, F401
+from . import elevenlabs_realtime_stt  # noqa: E402, F401
