@@ -22,13 +22,13 @@ class TestSpeedParameter:
                 result = await converse(
                     message="Test",
                     wait_for_response=False,
-                    speed=1.5
+                    speed=1.2
                 )
                 
                 assert "Message spoken successfully" in result
                 # Verify speed was passed correctly
                 _, kwargs = mock_tts.call_args
-                assert kwargs['speed'] == 1.5
+                assert kwargs['speed'] == 1.2
     
     @pytest.mark.asyncio
     async def test_speed_converts_string_to_float(self):
@@ -41,13 +41,13 @@ class TestSpeedParameter:
                 result = await converse(
                     message="Test",
                     wait_for_response=False,
-                    speed="1.5"  # String value
+                    speed="1.2"  # String value
                 )
                 
                 assert "Message spoken successfully" in result
                 # Verify speed was converted and passed correctly
                 _, kwargs = mock_tts.call_args
-                assert kwargs['speed'] == 1.5
+                assert kwargs['speed'] == 1.2
                 assert isinstance(kwargs['speed'], float)
     
     @pytest.mark.asyncio
