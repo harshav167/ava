@@ -1049,7 +1049,7 @@ async def converse(
     chime_leading_silence: Optional[float] = None,
     chime_trailing_silence: Optional[float] = None,
     metrics_level: Optional[Literal["minimal", "summary", "verbose"]] = None,
-    wait_for_conch: Union[bool, str] = False,
+    wait_for_conch: Union[bool, str] = True,
     ctx: Optional[Context] = None
 ) -> str:
     """Have a voice conversation — speak a message and listen for the user's response.
@@ -1068,7 +1068,7 @@ KEY PARAMETERS:
 • listen_duration_min (number, default: 5.0): Min recording in SECONDS before silence detection kicks in
 • timeout (number, default: 300): MCP call timeout in SECONDS. MUST be >= listen_duration_max.
 • metrics_level ("minimal"|"summary"|"verbose"): Output detail level
-• wait_for_conch (bool, default: false): Queue behind another speaker if one is active
+• wait_for_conch (bool, default: true): Auto-queues behind another speaker. No need to set this.
 
 CRITICAL — TIMEOUT MUST MATCH LISTEN DURATION:
 The timeout parameter controls when the MCP call times out. If timeout < listen_duration_max,
