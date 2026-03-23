@@ -75,10 +75,14 @@ async def elevenlabs_tts(
         gen_start = _time.perf_counter()
 
         def _generate_and_play(chunks):
-            """Run blocking ElevenLabs convert+play in a thread."""
-            import subprocess
-            import tempfile
-            import os
+            """Run blocking ElevenLabs convert+play in a thread.
+
+            Uses sounddevice+soundfile for in-process audio playback.
+            No subprocess (ffplay was killing the parent process via signal propagation).
+            """
+            import io
+            import sounddevice as sd
+            import soundfile as sf
 
             for i, chunk_text in enumerate(chunks):
                 logger.info(f"ElevenLabs TTS chunk {i+1}/{len(chunks)}: {len(chunk_text)} chars")
@@ -92,29 +96,17 @@ async def elevenlabs_tts(
                         voice_settings=VoiceSettings(speed=speed),
                     )
 
-                    # Collect audio bytes with timeout protection
+                    # Collect audio bytes
                     audio_bytes = b"".join(audio_iterator)
                     if not audio_bytes:
                         logger.warning(f"ElevenLabs TTS chunk {i+1} returned empty audio")
                         continue
 
-                    # Write to temp file and play with ffplay + timeout
-                    # This prevents ffplay from hanging indefinitely
-                    tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
-                    tmp.write(audio_bytes)
-                    tmp.close()
-
-                    try:
-                        proc = subprocess.run(
-                            ["ffplay", "-autoexit", "-nodisp", tmp.name],
-                            timeout=120,  # 2 minute max per chunk
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                        )
-                    except subprocess.TimeoutExpired:
-                        logger.error(f"ffplay timed out on chunk {i+1}")
-                    finally:
-                        os.unlink(tmp.name)
+                    # Decode MP3 to PCM and play in-process via sounddevice
+                    # No subprocess = no signal propagation = no silent crashes
+                    data, samplerate = sf.read(io.BytesIO(audio_bytes))
+                    sd.play(data, samplerate)
+                    sd.wait()  # Block until playback finishes
 
                 except Exception as e:
                     logger.error(f"ElevenLabs TTS chunk {i+1} failed: {e}")
