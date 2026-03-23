@@ -148,8 +148,11 @@ async def elevenlabs_tts(
                     logger.error(f"ElevenLabs TTS chunk {i+1} failed: {e}")
                     # Continue to next chunk instead of crashing
 
-        # Run blocking TTS in a thread so the async event loop isn't frozen
-        await asyncio.to_thread(_generate_and_play, merged)
+        # Duck other audio (pause Spotify/Music) during TTS playback
+        from .audio_ducker import DJDucker
+        with DJDucker():
+            # Run blocking TTS in a thread so the async event loop isn't frozen
+            await asyncio.to_thread(_generate_and_play, merged)
 
         total_time = _time.perf_counter() - gen_start
 
