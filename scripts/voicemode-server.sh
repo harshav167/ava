@@ -51,6 +51,10 @@ create_plist() {
     <true/>
     <key>ThrottleInterval</key>
     <integer>5</integer>
+    <key>ExitTimeOut</key>
+    <integer>10</integer>
+    <key>ProcessType</key>
+    <string>Interactive</string>
     <key>StandardOutPath</key>
     <string>$LOG_DIR/server.log</string>
     <key>StandardErrorPath</key>
@@ -59,6 +63,13 @@ create_plist() {
     <dict>
         <key>PATH</key>
         <string>$(dirname "$UV_PATH"):/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+    <key>SoftResourceLimits</key>
+    <dict>
+        <key>NumberOfFiles</key>
+        <integer>4096</integer>
     </dict>
 </dict>
 </plist>
