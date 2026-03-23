@@ -94,6 +94,13 @@ stop_server() {
             kill -9 "$pid" 2>/dev/null
         fi
     done
+    # Wait for port to actually be free (up to 10 seconds)
+    for i in $(seq 1 10); do
+        if ! lsof -ti :$PORT > /dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
     echo "Server stopped"
 }
 
