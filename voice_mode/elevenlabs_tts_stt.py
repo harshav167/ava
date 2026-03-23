@@ -75,14 +75,10 @@ async def elevenlabs_tts(
         gen_start = _time.perf_counter()
 
         def _generate_and_play(chunks):
-            """Run blocking ElevenLabs convert+play in a thread.
-
-            Uses sounddevice+soundfile for in-process audio playback.
-            No subprocess (ffplay was killing the parent process via signal propagation).
-            """
-            import io
-            import sounddevice as sd
-            import soundfile as sf
+            """Run blocking ElevenLabs convert+play in a thread."""
+            import subprocess
+            import tempfile
+            import os
 
             for i, chunk_text in enumerate(chunks):
                 logger.info(f"ElevenLabs TTS chunk {i+1}/{len(chunks)}: {len(chunk_text)} chars")
@@ -101,17 +97,31 @@ async def elevenlabs_tts(
                         ),
                     )
 
-                    # Collect audio bytes
+                    # Collect audio bytes with timeout protection
                     audio_bytes = b"".join(audio_iterator)
                     if not audio_bytes:
                         logger.warning(f"ElevenLabs TTS chunk {i+1} returned empty audio")
                         continue
 
-                    # Decode MP3 to PCM and play in-process via sounddevice
-                    # No subprocess = no signal propagation = no silent crashes
-                    data, samplerate = sf.read(io.BytesIO(audio_bytes))
-                    sd.play(data, samplerate)
-                    sd.wait()  # Block until playback finishes
+                    # Write to temp file and play with ffplay + timeout
+                    # start_new_session=True isolates ffplay in its own process group
+                    # so SDL2/CoreAudio signals don't propagate to parent
+                    tmp = tempfile.NamedTemporaryFile(suffix=".mp3", delete=False)
+                    tmp.write(audio_bytes)
+                    tmp.close()
+
+                    try:
+                        proc = subprocess.run(
+                            ["ffplay", "-autoexit", "-nodisp", tmp.name],
+                            timeout=120,  # 2 minute max per chunk
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True,  # Isolate: signals won't kill parent
+                        )
+                    except subprocess.TimeoutExpired:
+                        logger.error(f"ffplay timed out on chunk {i+1}")
+                    finally:
+                        os.unlink(tmp.name)
 
                 except Exception as e:
                     logger.error(f"ElevenLabs TTS chunk {i+1} failed: {e}")
