@@ -982,14 +982,10 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
         # For fallback, assume speech is present since we can't detect
         return (record_audio(max_duration), True)
 
-# TODO(VM-742): Add task=True for background execution once fastmcp is upgraded to >=2.14.0
-# Background tasks (SEP-1686) were added in fastmcp 2.14.0. Current installed: 2.12.3.
-# The upgrade pulls in ~29 new packages (pydocket, mcp 1.26, opentelemetry, etc.) so it
-# needs its own PR with integration testing. Once upgraded, change to:
-#   @mcp.tool(task=True)
-# This makes converse return a task ID immediately; clients poll for results.
+# VM-742: task=True enables background execution (FastMCP SEP-1686).
+# Converse returns a task ID immediately; clients poll for results.
 # The function body stays the same — FastMCP handles the task wrapping.
-@mcp.tool()
+@mcp.tool(task=True)
 async def converse(
     message: str,
     wait_for_response: Union[bool, str] = True,
