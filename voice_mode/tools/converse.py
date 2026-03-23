@@ -1999,6 +1999,10 @@ set wait_for_conch=true to queue, or try again later.
             result = f"Error: {str(e)}"
             return result
         
+    except asyncio.CancelledError:
+        logger.warning("Converse cancelled (client disconnected or timeout)")
+        return "Converse cancelled — client disconnected"
+
     except Exception as e:
         logger.error(f"Unexpected error in converse: {e}")
         if DEBUG:
