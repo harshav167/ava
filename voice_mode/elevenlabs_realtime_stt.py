@@ -2,8 +2,9 @@
 ElevenLabs Scribe v2 Realtime STT for VoiceMode.
 
 Streams microphone audio to ElevenLabs via WebSocket and returns
-committed transcripts. Uses server-side VAD for automatic silence
-detection, replacing VoiceMode's local VAD + record-then-transcribe.
+committed transcripts. Uses local Silero VAD for silence detection
+with manual commit mode — audio streams to ElevenLabs for transcription
+while Silero runs locally for instant silence detection.
 """
 
 import asyncio
@@ -12,9 +13,12 @@ import logging
 import time
 from typing import Optional, Callable
 
+import numpy as np
 import sounddevice as sd
-from elevenlabs.realtime.scribe import AudioFormat, CommitStrategy
+from elevenlabs.realtime.scribe import AudioFormat
 from elevenlabs.realtime.connection import RealtimeEvents
+
+from .silero_vad import get_silero_vad, get_threshold_for_aggressiveness, SILERO_CHUNK_SAMPLES
 
 logger = logging.getLogger("voicemode")
 
@@ -26,6 +30,10 @@ CHUNK_SAMPLES = int(SCRIBE_SAMPLE_RATE * CHUNK_DURATION_MS / 1000)
 # Timeout for session to start after WebSocket connects
 SESSION_START_TIMEOUT = 10.0
 
+# Silence detection defaults (matching Osaurus behavior)
+DEFAULT_SILENCE_THRESHOLD_SECS = 0.8  # Osaurus: 0.3-0.8s depending on sensitivity
+DEFAULT_VAD_THRESHOLD = 0.5  # Osaurus medium: 0.75 (inverted — higher = less sensitive)
+
 
 async def realtime_transcribe(
     api_key: str,
@@ -34,11 +42,16 @@ async def realtime_transcribe(
     language_code: Optional[str] = None,
     on_partial: Optional[Callable[[str], None]] = None,
     vad_silence_threshold: float = 2.0,
+    vad_aggressiveness: int = 1,
+    disable_silence_detection: bool = False,
 ) -> Optional[dict]:
     """
     Stream microphone audio to ElevenLabs Scribe v2 Realtime via WebSocket.
 
-    Uses server-side VAD to auto-commit when silence is detected.
+    Uses MANUAL commit mode with local Silero VAD for silence detection.
+    Audio streams to ElevenLabs for transcription. Silero runs locally
+    to detect when the user stops speaking, then sends a manual commit.
+    This gives local-speed silence detection (~50ms) with cloud transcription.
     """
     from elevenlabs.client import ElevenLabs
 
@@ -50,18 +63,33 @@ async def realtime_transcribe(
     session_ready = asyncio.Event()
     start_time = time.perf_counter()
 
+    # Use MANUAL commit — we control when to commit via local Silero VAD
+    # ElevenLabs docs: "Manual commit is the default strategy"
     connect_options = {
         "model_id": "scribe_v2_realtime",
         "audio_format": AudioFormat.PCM_16000,
         "sample_rate": SCRIBE_SAMPLE_RATE,
-        "commit_strategy": CommitStrategy.VAD,
-        "vad_silence_threshold_secs": min(3.0, max(0.3, vad_silence_threshold)),
+        # No commit_strategy = defaults to manual commit
     }
 
     # Always set language — auto-detect often misidentifies accented English
     connect_options["language_code"] = language_code if (language_code and language_code != "auto") else "en"
 
-    logger.info(f"ElevenLabs Realtime STT: connecting (max={max_duration}s, min={min_duration}s)")
+    # Calculate silence threshold based on aggressiveness
+    # Map 0-3 to Osaurus-like thresholds
+    if disable_silence_detection:
+        silence_secs = max_duration  # Effectively disabled — record until max_duration
+        vad_prob_threshold = 0.3  # Still track VAD but don't act on it
+    else:
+        # Aggressiveness 0=tolerant (longer silence ok), 3=strict (short silence triggers)
+        silence_map = {0: 1.5, 1: 0.8, 2: 0.5, 3: 0.3}
+        silence_secs = silence_map.get(vad_aggressiveness, 0.8)
+        vad_prob_threshold = get_threshold_for_aggressiveness(vad_aggressiveness)
+
+    logger.info(
+        f"ElevenLabs Realtime STT: connecting (max={max_duration}s, min={min_duration}s, "
+        f"silence={silence_secs}s, vad_threshold={vad_prob_threshold}, mode=manual_commit+silero)"
+    )
 
     try:
         connection = await asyncio.wait_for(
@@ -85,7 +113,7 @@ async def realtime_transcribe(
 
     # Event handlers
     def on_session_started(data):
-        logger.info("ElevenLabs Realtime STT: session started")
+        logger.info("ElevenLabs Realtime STT: session started (manual commit + local Silero VAD)")
         session_ready.set()
 
     def on_partial_transcript_event(data):
@@ -151,14 +179,25 @@ async def realtime_transcribe(
             "error": error_message,
         }
 
-    # NOW start mic streaming — session is confirmed ready
-    mic_task = asyncio.create_task(_stream_microphone(connection, max_duration, start_time))
+    # NOW start mic streaming with local Silero VAD — session is confirmed ready
+    mic_task = asyncio.create_task(
+        _stream_microphone_with_local_vad(
+            connection, max_duration, min_duration, start_time,
+            silence_secs, vad_prob_threshold, disable_silence_detection,
+        )
+    )
 
     try:
         while recording:
             elapsed = time.perf_counter() - start_time
             if elapsed >= max_duration:
                 logger.info("ElevenLabs Realtime STT: max duration reached")
+                # Send final commit before closing
+                try:
+                    await connection.commit()
+                    await asyncio.sleep(0.5)  # Give server time to process
+                except Exception:
+                    pass
                 break
             await asyncio.sleep(0.1)
     finally:
@@ -175,7 +214,7 @@ async def realtime_transcribe(
 
     elapsed_total = time.perf_counter() - start_time
 
-    if error_message:
+    if error_message and not committed_text:
         return {
             "error_type": "connection_failed",
             "provider": "elevenlabs",
@@ -190,6 +229,7 @@ async def realtime_transcribe(
             "metrics": {
                 "is_local": False,
                 "request_time_ms": round(elapsed_total * 1000, 1),
+                "vad_mode": "local_silero",
             },
         }
     else:
@@ -203,12 +243,44 @@ async def realtime_transcribe(
         }
 
 
-async def _stream_microphone(connection, max_duration: float, start_time: float):
-    """Stream microphone audio chunks to the ElevenLabs WebSocket."""
+async def _stream_microphone_with_local_vad(
+    connection,
+    max_duration: float,
+    min_duration: float,
+    start_time: float,
+    silence_threshold_secs: float,
+    vad_prob_threshold: float,
+    disable_silence_detection: bool,
+):
+    """
+    Stream microphone audio to ElevenLabs WebSocket while running
+    local Silero VAD for silence detection.
+
+    Audio is forked:
+    - Full chunks go to ElevenLabs via WebSocket (for transcription)
+    - Sub-chunks (512 samples) go through local Silero VAD (for silence detection)
+
+    When Silero detects silence exceeding the threshold, sends a manual
+    commit to ElevenLabs to finalize the transcript.
+    """
     loop = asyncio.get_event_loop()
 
+    # Load Silero VAD
+    vad = get_silero_vad()
+    if vad is None:
+        logger.warning("Silero VAD not available — falling back to time-based commit")
+
+    # VAD state tracking
+    speech_detected_ever = False
+    silence_start = None  # When silence began
+    last_speech_time = time.perf_counter()
+
     try:
-        logger.info(f"ElevenLabs Realtime STT: mic capture at {SCRIBE_SAMPLE_RATE}Hz")
+        logger.info(
+            f"ElevenLabs Realtime STT: mic capture at {SCRIBE_SAMPLE_RATE}Hz "
+            f"(local Silero VAD, silence_threshold={silence_threshold_secs}s, "
+            f"vad_threshold={vad_prob_threshold})"
+        )
 
         stream = sd.InputStream(
             samplerate=SCRIBE_SAMPLE_RATE,
@@ -236,13 +308,65 @@ async def _stream_microphone(connection, max_duration: float, start_time: float)
                 if overflowed:
                     logger.debug("ElevenLabs STT: audio buffer overflow")
 
-                # Send base64-encoded PCM to WebSocket
+                # Send base64-encoded PCM to ElevenLabs WebSocket (for transcription)
                 audio_b64 = base64.b64encode(data.tobytes()).decode("utf-8")
                 try:
                     await connection.send({"audio_base_64": audio_b64})
                 except Exception as e:
                     logger.error(f"ElevenLabs STT: failed to send audio chunk: {e}")
                     break
+
+                # Run local Silero VAD on sub-chunks (512 samples each)
+                if vad is not None and not disable_silence_detection:
+                    audio_flat = data.flatten()
+                    is_speech = False
+
+                    # Process in 512-sample sub-chunks as Silero requires
+                    for offset in range(0, len(audio_flat), SILERO_CHUNK_SAMPLES):
+                        sub_chunk = audio_flat[offset:offset + SILERO_CHUNK_SAMPLES]
+                        if len(sub_chunk) < SILERO_CHUNK_SAMPLES:
+                            # Pad short final chunk
+                            sub_chunk = np.pad(sub_chunk, (0, SILERO_CHUNK_SAMPLES - len(sub_chunk)))
+
+                        try:
+                            prob = vad(sub_chunk, SCRIBE_SAMPLE_RATE)
+                            if prob > vad_prob_threshold:
+                                is_speech = True
+                                break  # Any speech in this chunk = speech
+                        except Exception:
+                            pass  # VAD error — skip, don't crash
+
+                    now = time.perf_counter()
+
+                    if is_speech:
+                        speech_detected_ever = True
+                        silence_start = None
+                        last_speech_time = now
+                    else:
+                        # Silence detected
+                        if silence_start is None:
+                            silence_start = now
+
+                        silence_duration = now - (silence_start or now)
+
+                        # Only commit after min_duration AND speech was detected AND silence exceeds threshold
+                        if (
+                            speech_detected_ever
+                            and elapsed >= min_duration
+                            and silence_duration >= silence_threshold_secs
+                        ):
+                            logger.info(
+                                f"Silero VAD: silence for {silence_duration:.1f}s "
+                                f"(threshold={silence_threshold_secs}s) — sending manual commit"
+                            )
+                            try:
+                                await connection.commit()
+                            except Exception as e:
+                                logger.error(f"Manual commit failed: {e}")
+                            # Wait briefly for ElevenLabs to process the commit
+                            await asyncio.sleep(0.3)
+                            break
+
         finally:
             stream.stop()
             stream.close()
