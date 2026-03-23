@@ -86,7 +86,8 @@ async def realtime_transcribe(
         # Osaurus high sensitivity: vadThreshold=0.55, silence=0.8s (our aggressiveness 0)
         # Osaurus medium sensitivity: vadThreshold=0.75, silence=0.5s (our aggressiveness 1-2)
         # Osaurus low sensitivity: vadThreshold=0.85, silence=0.3s (our aggressiveness 3)
-        silence_map = {0: 0.8, 1: 0.5, 2: 0.5, 3: 0.3}
+        # Osaurus base + extended for voice-only (no visual recording indicator)
+        silence_map = {0: 2.0, 1: 1.5, 2: 0.8, 3: 0.5}
         threshold_map = {0: 0.55, 1: 0.75, 2: 0.75, 3: 0.85}
         silence_secs = silence_map.get(vad_aggressiveness, 0.5)
         vad_prob_threshold = threshold_map.get(vad_aggressiveness, 0.75)
