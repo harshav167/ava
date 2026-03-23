@@ -93,7 +93,12 @@ async def elevenlabs_tts(
                         voice_id=el_voice,
                         model_id=el_model,
                         output_format="mp3_44100_128",
-                        voice_settings=VoiceSettings(speed=speed),
+                        voice_settings=VoiceSettings(
+                            speed=speed,
+                            stability=0.5,
+                            similarity_boost=0.8,
+                            use_speaker_boost=False,
+                        ),
                     )
 
                     # Collect audio bytes
