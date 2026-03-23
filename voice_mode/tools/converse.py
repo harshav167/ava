@@ -1033,9 +1033,9 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
 async def converse(
     message: str,
     wait_for_response: Union[bool, str] = True,
-    listen_duration_max: float = DEFAULT_LISTEN_DURATION,
-    listen_duration_min: float = 2.0,
-    timeout: float = 60.0,
+    listen_duration_max: float = 300.0,
+    listen_duration_min: float = 5.0,
+    timeout: float = 300.0,
     voice: Optional[str] = None,
     tts_provider: Optional[str] = None,
     tts_model: Optional[str] = None,
@@ -1064,13 +1064,19 @@ KEY PARAMETERS:
 • speed (0.7-1.2): Speech rate. Default 1.2 (max). ElevenLabs range is 0.7-1.2.
 • disable_silence_detection (bool, default: false): Set true to record for full listen_duration_max
 • vad_aggressiveness (0-3, default: 1): Voice detection strictness. 0=most tolerant of pauses, 3=most strict
-• listen_duration_max (number, default: 120): Max listen time in seconds
-• listen_duration_min (number, default: 3.0): Min recording before silence detection kicks in
+• listen_duration_max (number, default: 300): Max listen time in SECONDS (300 = 5 minutes)
+• listen_duration_min (number, default: 5.0): Min recording in SECONDS before silence detection kicks in
+• timeout (number, default: 300): MCP call timeout in SECONDS. MUST be >= listen_duration_max.
 • metrics_level ("minimal"|"summary"|"verbose"): Output detail level
 • wait_for_conch (bool, default: false): Queue behind another speaker if one is active
 
+CRITICAL — TIMEOUT MUST MATCH LISTEN DURATION:
+The timeout parameter controls when the MCP call times out. If timeout < listen_duration_max,
+the call will time out before the user finishes speaking. ALWAYS set timeout >= listen_duration_max.
+Both are in SECONDS. Default is 300 seconds (5 minutes) for both.
+
 WHEN USER GETS CUT OFF:
-Increase listen_duration_min to 5-10, lower vad_aggressiveness to 0, or set disable_silence_detection=true.
+Increase listen_duration_min to 10, lower vad_aggressiveness to 0, or set disable_silence_detection=true.
 
 PARALLEL PATTERN (zero dead air):
 Call converse(msg, wait_for_response=false) alongside other tools in the same turn.
