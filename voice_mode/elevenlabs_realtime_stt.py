@@ -89,7 +89,7 @@ async def realtime_transcribe(
         # Total effective silence = silenceThreshold + pauseDuration = 0.5 + 1.5 = 2.0s for medium
         # We combine these into a single silence_secs since we don't have a visual confirmation UI
         threshold_map = {0: 0.55, 1: 0.75, 2: 0.75, 3: 0.85}  # Osaurus exact
-        silence_map = {0: 2.3, 1: 2.0, 2: 1.5, 3: 0.8}  # silenceThreshold + pauseDuration combined
+        silence_map = {0: 4.0, 1: 3.0, 2: 2.0, 3: 1.0}  # silenceThreshold + pauseDuration combined
         effective_aggressiveness = vad_aggressiveness if vad_aggressiveness is not None else 1
         silence_secs = silence_map.get(effective_aggressiveness, 2.0)
         vad_prob_threshold = threshold_map.get(effective_aggressiveness, 0.75)
