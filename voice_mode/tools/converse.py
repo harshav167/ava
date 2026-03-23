@@ -1339,6 +1339,10 @@ set wait_for_conch=true to queue, or try again later.
 
                 # If speak-only mode, return success after TTS
                 if not wait_for_response:
+                    # Stage 4/4: Complete (speak-only)
+                    await _ctx_progress(ctx, 4, 4, "Complete")
+                    await _ctx_info(ctx, "Message spoken")
+
                     # Format timing info for speak-only mode
                     timing_info = ""
                     if tts_success and tts_metrics:
@@ -1377,9 +1381,13 @@ set wait_for_conch=true to queue, or try again later.
                     logger.info(f"Speak-only result: {result}")
                     return result
 
+                # Stage 2/4: Recording
+                await _ctx_progress(ctx, 2, 4, "Recording")
+                await _ctx_info(ctx, "Recording started...")
+
                 # Brief pause before listening
                 await asyncio.sleep(0.5)
-                
+
                 # Play "listening" feedback sound
                 await play_audio_feedback(
                     "listening",
@@ -1479,6 +1487,10 @@ set wait_for_conch=true to queue, or try again later.
                     user_done_time = time.perf_counter()
                     logger.info(f"ElevenLabs Realtime STT finished at {user_done_time - tts_start:.1f}s from start")
 
+                    # Stage 3/4: Transcribing (realtime path — recording+STT were simultaneous)
+                    await _ctx_progress(ctx, 3, 4, "Transcribing")
+                    await _ctx_info(ctx, "Transcription complete")
+
                     # stt_result is already in the expected dict format
                     # Handle below in the existing stt_result processing block
 
@@ -1538,6 +1550,10 @@ set wait_for_conch=true to queue, or try again later.
                         # Set stt_result to indicate no speech for unified handling below
                         stt_result = {"error_type": "no_speech", "provider": "local_vad"}
                     else:
+                        # Stage 3/4: Transcribing (traditional path)
+                        await _ctx_progress(ctx, 3, 4, "Transcribing")
+                        await _ctx_info(ctx, "Transcribing...")
+
                         # Convert to text
                         # Log STT start
                         if event_logger:
@@ -1812,10 +1828,14 @@ set wait_for_conch=true to queue, or try again later.
                 except Exception as e:
                     logger.error(f"Failed to log STT to JSONL: {e}")
             
+            # Stage 4/4: Complete
+            await _ctx_progress(ctx, 4, 4, "Complete")
+            await _ctx_info(ctx, "Voice interaction complete")
+
             # Calculate total time (use tts_total instead of sub-metrics)
             main_timings = {k: v for k, v in timings.items() if k in ['tts_total', 'record', 'stt']}
             total_time = sum(main_timings.values())
-            
+
             # Format timing strings separately for TTS and STT
             tts_timing_parts = []
             stt_timing_parts = []

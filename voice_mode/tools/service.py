@@ -11,6 +11,8 @@ from typing import Literal, Optional, Dict, Any, Union
 
 import psutil
 
+from fastmcp import Context
+
 from voice_mode.server import mcp
 from voice_mode.config import SERVICE_AUTO_ENABLE
 from voice_mode.utils.services.common import find_process_by_port, check_service_status
@@ -814,7 +816,8 @@ async def view_logs(service_name: str, lines: Optional[int] = None) -> str:
 async def service(
     service_name: Literal["whisper", "kokoro", "voicemode", "connect"],
     action: Literal["status", "start", "stop", "restart", "enable", "disable", "logs"] = "status",
-    lines: Optional[Union[int, str]] = None
+    lines: Optional[Union[int, str]] = None,
+    ctx: Optional[Context] = None
 ) -> str:
     """Unified service management tool for voice mode services.
 
@@ -842,6 +845,13 @@ async def service(
         service("connect", "enable")  # Enable Connect service for remote voice
         service("whisper", "logs", 100)  # View last 100 lines of Whisper logs
     """
+    # Send status info to MCP client if Context is available
+    if ctx is not None:
+        try:
+            await ctx.info(f"Service {action}: {service_name}")
+        except Exception:
+            pass
+
     # Convert lines to integer if provided as string
     if lines is not None and isinstance(lines, str):
         try:
@@ -849,7 +859,7 @@ async def service(
         except ValueError:
             logger.warning(f"Invalid lines value '{lines}', using default 50")
             lines = 50
-    
+
     # Route to appropriate handler
     if action == "status":
         return await status_service(service_name)
