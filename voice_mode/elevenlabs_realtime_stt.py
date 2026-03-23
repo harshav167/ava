@@ -225,9 +225,14 @@ async def _stream_microphone(connection, max_duration: float, start_time: float)
                     break
 
                 # Read audio chunk in executor to avoid blocking
-                data, overflowed = await loop.run_in_executor(
-                    None, stream.read, CHUNK_SAMPLES
-                )
+                try:
+                    data, overflowed = await loop.run_in_executor(
+                        None, stream.read, CHUNK_SAMPLES
+                    )
+                except Exception as e:
+                    # PortAudio errors (PaErrorCode -9988 etc) when mic disconnects
+                    logger.error(f"ElevenLabs STT: mic read failed: {e}")
+                    break
                 if overflowed:
                     logger.debug("ElevenLabs STT: audio buffer overflow")
 
