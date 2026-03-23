@@ -1045,10 +1045,11 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
         # For fallback, assume speech is present since we can't detect
         return (record_audio(max_duration), True)
 
-# VM-742: task=True enables background execution (FastMCP SEP-1686).
-# Converse returns a task ID immediately; clients poll for results.
-# The function body stays the same — FastMCP handles the task wrapping.
-@mcp.tool(task=True)
+# VM-742: task=True disabled — Docket in-memory worker causes connection failures
+# when clients (Osaurus) don't support the task protocol. Re-enable after configuring
+# Docket properly or when all clients support background tasks.
+# @mcp.tool(task=True)
+@mcp.tool()
 async def converse(
     message: str,
     wait_for_response: Union[bool, str] = True,
