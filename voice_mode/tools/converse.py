@@ -22,6 +22,8 @@ except ImportError as e:
     webrtcvad = None
     VAD_AVAILABLE = False
 
+from fastmcp import Context
+
 from voice_mode.server import mcp
 from voice_mode.conch import Conch
 from voice_mode.conversation_logger import get_conversation_logger
@@ -95,6 +97,32 @@ logger.info(f"Module loaded with DISABLE_SILENCE_DETECTION={DISABLE_SILENCE_DETE
 # DJ Ducking Configuration
 DJ_SOCKET_PATH = "/tmp/voicemode-mpv.sock"
 DJ_VOLUME_DUCK_AMOUNT = int(os.environ.get("VOICEMODE_DJ_DUCK_AMOUNT", "20"))  # Volume reduction during TTS
+
+
+async def _ctx_info(ctx: Optional[Context], message: str) -> None:
+    """Send an info-level log message to the MCP client, if Context is available.
+
+    Silently ignores failures — the client may not support logging notifications.
+    """
+    if ctx is None:
+        return
+    try:
+        await ctx.info(message)
+    except Exception:
+        pass
+
+
+async def _ctx_progress(ctx: Optional[Context], progress: float, total: float, message: str | None = None) -> None:
+    """Report progress to the MCP client, if Context is available.
+
+    Silently ignores failures — the client may not support progress notifications.
+    """
+    if ctx is None:
+        return
+    try:
+        await ctx.report_progress(progress, total, message)
+    except Exception:
+        pass
 
 
 def _dj_command(cmd: str) -> Optional[str]:
@@ -954,6 +982,13 @@ def record_audio_with_silence_detection(max_duration: float, disable_silence_det
         # For fallback, assume speech is present since we can't detect
         return (record_audio(max_duration), True)
 
+# TODO(VM-742): Add task=True for background execution once fastmcp is upgraded to >=2.14.0
+# Background tasks (SEP-1686) were added in fastmcp 2.14.0. Current installed: 2.12.3.
+# The upgrade pulls in ~29 new packages (pydocket, mcp 1.26, opentelemetry, etc.) so it
+# needs its own PR with integration testing. Once upgraded, change to:
+#   @mcp.tool(task=True)
+# This makes converse return a task ID immediately; clients poll for results.
+# The function body stays the same — FastMCP handles the task wrapping.
 @mcp.tool()
 async def converse(
     message: str,
@@ -974,7 +1009,8 @@ async def converse(
     chime_leading_silence: Optional[float] = None,
     chime_trailing_silence: Optional[float] = None,
     metrics_level: Optional[Literal["minimal", "summary", "verbose"]] = None,
-    wait_for_conch: Union[bool, str] = False
+    wait_for_conch: Union[bool, str] = False,
+    ctx: Optional[Context] = None
 ) -> str:
     """Have a voice conversation — speak a message and listen for the user's response.
 
@@ -1189,6 +1225,10 @@ set wait_for_conch=true to queue, or try again later.
         timings = {}
         try:
             async with audio_operation_lock:
+                # Stage 0/4: Starting TTS
+                await _ctx_progress(ctx, 0, 4, "Starting TTS")
+                await _ctx_info(ctx, "Connecting to ElevenLabs...")
+
                 # Speak the message
                 tts_start = time.perf_counter()
                 if should_skip_tts:
@@ -1214,13 +1254,17 @@ set wait_for_conch=true to queue, or try again later.
                             speed=speed
                         )
                 
+                # Stage 1/4: Playing audio (TTS generation + playback done)
+                await _ctx_progress(ctx, 1, 4, "Playing audio")
+                await _ctx_info(ctx, "Playing audio...")
+
                 # Add TTS sub-metrics
                 if tts_metrics:
                     timings['ttfa'] = tts_metrics.get('ttfa', 0)
                     timings['tts_gen'] = tts_metrics.get('generation', 0)
                     timings['tts_play'] = tts_metrics.get('playback', 0)
                 timings['tts_total'] = time.perf_counter() - tts_start
-                
+
                 # Log TTS immediately after it completes
                 if tts_success:
                     try:

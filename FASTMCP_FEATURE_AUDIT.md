@@ -19,13 +19,21 @@ FastMCP has `FileSystemProvider` that auto-discovers `@tool`, `@resource`, `@pro
 ---
 
 ## 2. Background Tasks
-**Status: NOT IMPLEMENTED**
+**Status: NOT IMPLEMENTED — Blocked on fastmcp upgrade to >=2.14.0**
 
 FastMCP has `task=True` decorator for long-running operations with progress tracking. The converse tool is exactly this — TTS generation + recording + STT can take 30-120 seconds. Currently it blocks the HTTP request the entire time.
 
-**Action**: Add `task=True` to the converse tool. This would let clients get an immediate task ID, then poll for progress/results. The user would hear TTS immediately while the STT happens in the background.
+**Research (2026-03-23)**:
+- `task=True` parameter was added in fastmcp 2.14.0 ([SEP-1686](https://github.com/jlowin/fastmcp/pull/2378))
+- Current installed version: **2.12.3** — does NOT have `task` parameter
+- pyproject.toml pin (`>=2.3.2,<3`) allows 2.14.x, but upgrade pulls in ~29 new packages:
+  - pydocket, platformdirs, py-key-value-aio, mcp 1.26 (from 1.14), opentelemetry-api, etc.
+- The v2.14 `tool()` signature: `task: bool | TaskConfig | None = None`
+- A TODO comment has been added to `voice_mode/tools/converse.py` with the exact decorator change
 
-**Priority**: HIGH — would prevent the HTTP timeouts we've been hitting.
+**Action**: Upgrade fastmcp to >=2.14.0 in a dedicated PR with integration testing, then change `@mcp.tool()` to `@mcp.tool(task=True)` on converse.
+
+**Priority**: HIGH — would prevent the HTTP timeouts we've been hitting. Blocked on the fastmcp 2.14 upgrade.
 
 ---
 
