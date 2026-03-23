@@ -82,11 +82,14 @@ async def realtime_transcribe(
         silence_secs = max_duration  # Effectively disabled — record until max_duration
         vad_prob_threshold = 0.3  # Still track VAD but don't act on it
     else:
-        # Aggressiveness 0=tolerant (longer silence ok), 3=strict (short silence triggers)
-        # Increased from Osaurus values — ElevenLabs realtime needs more buffer
-        silence_map = {0: 3.0, 1: 2.0, 2: 1.2, 3: 0.8}
-        silence_secs = silence_map.get(vad_aggressiveness, 0.8)
-        vad_prob_threshold = get_threshold_for_aggressiveness(vad_aggressiveness)
+        # Exact Osaurus VAD config replicated:
+        # Osaurus high sensitivity: vadThreshold=0.55, silence=0.8s (our aggressiveness 0)
+        # Osaurus medium sensitivity: vadThreshold=0.75, silence=0.5s (our aggressiveness 1-2)
+        # Osaurus low sensitivity: vadThreshold=0.85, silence=0.3s (our aggressiveness 3)
+        silence_map = {0: 0.8, 1: 0.5, 2: 0.5, 3: 0.3}
+        threshold_map = {0: 0.55, 1: 0.75, 2: 0.75, 3: 0.85}
+        silence_secs = silence_map.get(vad_aggressiveness, 0.5)
+        vad_prob_threshold = threshold_map.get(vad_aggressiveness, 0.75)
 
     logger.info(
         f"ElevenLabs Realtime STT: connecting (max={max_duration}s, min={min_duration}s, "
