@@ -19,7 +19,7 @@ class TestConfigurationManagement:
     @pytest.mark.asyncio
     async def test_list_config_keys(self):
         """Test listing configuration keys."""
-        result = await list_config_keys.fn()
+        result = await list_config_keys()
         
         # Should return a formatted string with config keys
         assert isinstance(result, str)
@@ -49,7 +49,7 @@ class TestConfigurationManagement:
             
             # Patch the config path
             with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path(temp_path)):
-                result = await update_config.fn("TEST_KEY", "test_value")
+                result = await update_config("TEST_KEY", "test_value")
                 
                 # Should return a message (success or error)
                 assert isinstance(result, str)
@@ -65,20 +65,20 @@ class TestConfigurationManagement:
     async def test_update_config_function_exists(self):
         """Test that update_config function is callable."""
         # Just verify the function exists and is callable
-        assert callable(update_config.fn)
+        assert callable(update_config)
         
         # Test with a mock path that doesn't exist
         with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path("/nonexistent/test.env")):
             with patch("pathlib.Path.mkdir"), patch("pathlib.Path.exists", return_value=False):
                 with patch("builtins.open", mock_open()) as mock_file:
-                    result = await update_config.fn("TEST_KEY", "test_value")
+                    result = await update_config("TEST_KEY", "test_value")
                     # Should return a string result
                     assert isinstance(result, str)
 
     @pytest.mark.asyncio
     async def test_list_config_keys_structure(self):
         """Test that list_config_keys returns properly structured output."""
-        result = await list_config_keys.fn()
+        result = await list_config_keys()
         
         # Should have sections
         assert "Core Configuration" in result or "Configuration" in result
@@ -91,14 +91,14 @@ class TestConfigurationManagement:
     async def test_config_functions_integration(self):
         """Test that config functions work together."""
         # List should work
-        list_result = await list_config_keys.fn()
+        list_result = await list_config_keys()
         assert len(list_result) > 100  # Should have substantial content
         
         # Update should return a message (even if it fails due to permissions)
         with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", Path("/tmp/test_config.env")):
             with patch("pathlib.Path.mkdir"):
                 try:
-                    update_result = await update_config.fn("TEST_INTEGRATION", "test")
+                    update_result = await update_config("TEST_INTEGRATION", "test")
                     assert isinstance(update_result, str)
                     assert len(update_result) > 0
                 except Exception:
@@ -108,7 +108,7 @@ class TestConfigurationManagement:
     @pytest.mark.asyncio
     async def test_list_config_keys_formatting(self):
         """Test that list_config_keys returns properly formatted output."""
-        result = await list_config_keys.fn()
+        result = await list_config_keys()
         
         # Should have multiple lines
         lines = result.split('\n')
@@ -448,7 +448,7 @@ class TestMultilineValueHandling:
 
             # Update only VOICEMODE_WHISPER_MODEL
             with patch("voice_mode.tools.configuration_management.USER_CONFIG_PATH", temp_file):
-                result = asyncio.run(update_config.fn("VOICEMODE_WHISPER_MODEL", "large-v1"))
+                result = asyncio.run(update_config("VOICEMODE_WHISPER_MODEL", "large-v1"))
 
             # Should succeed
             assert "success" in result.lower() or "updated" in result.lower()

@@ -74,6 +74,8 @@ async def elevenlabs_tts(
 
         gen_start = _time.perf_counter()
 
+        chunks_played = []  # Track which chunks were successfully played
+
         def _generate_and_play(chunks):
             """Run blocking ElevenLabs convert+play in a thread."""
             import subprocess
@@ -139,6 +141,7 @@ async def elevenlabs_tts(
                             stderr=subprocess.DEVNULL,
                             start_new_session=True,  # Isolate: signals won't kill parent
                         )
+                        chunks_played.append(i)
                     except subprocess.TimeoutExpired:
                         logger.error(f"ffplay timed out on chunk {i+1}")
                     finally:
@@ -149,12 +152,24 @@ async def elevenlabs_tts(
                     # Continue to next chunk instead of crashing
 
         # Duck other audio (pause Spotify/Music) during TTS playback
-        from .audio_ducker import DJDucker
-        with DJDucker():
+        try:
+            from .audio_ducker import DJDucker
+            ducker = DJDucker
+        except ImportError:
+            from contextlib import contextmanager
+            @contextmanager
+            def _noop(): yield
+            ducker = _noop
+
+        with ducker():
             # Run blocking TTS in a thread so the async event loop isn't frozen
             await asyncio.to_thread(_generate_and_play, merged)
 
         total_time = _time.perf_counter() - gen_start
+
+        # If no chunks were successfully played, report failure
+        if not chunks_played:
+            raise Exception(f"All {len(merged)} TTS chunks failed — no audio played")
 
         # SDK stream() combines generation and playback into one blocking call,
         # so both values reflect the total elapsed time.

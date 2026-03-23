@@ -19,7 +19,7 @@ class TestDiagnosticTools:
              patch("pathlib.Path.exists", return_value=True), \
              patch("pathlib.Path.home", return_value=Path("/home/test")):
             
-            result = await voice_mode_info.fn()
+            result = await voice_mode_info()
             
             # Should return formatted string
             assert isinstance(result, str)
@@ -63,7 +63,7 @@ class TestDiagnosticTools:
             
             mock_query.side_effect = query_side_effect
             
-            result = await check_audio_devices.fn()
+            result = await check_audio_devices()
             
             # Should return formatted string
             assert isinstance(result, str)
@@ -103,7 +103,7 @@ class TestDiagnosticTools:
             mock_registry_instance.initialize = AsyncMock()
             mock_registry_instance.get_registry_for_llm.return_value = mock_registry
             
-            result = await voice_registry.fn()
+            result = await voice_registry()
             
             # Should return formatted string
             assert isinstance(result, str)
@@ -156,7 +156,7 @@ class TestDiagnosticTools:
                         stdout="PulseAudio 15.0"
                     )
                     
-                    result = await check_audio_dependencies.fn()
+                    result = await check_audio_dependencies()
                     
                     # Should return dictionary with text and data
                     assert isinstance(result, dict)
@@ -201,7 +201,7 @@ class TestDiagnosticTools:
                 if 'voice_mode.tools.dependencies' in sys.modules:
                     importlib.reload(sys.modules['voice_mode.tools.dependencies'])
                 
-                result = await check_audio_dependencies.fn()
+                result = await check_audio_dependencies()
                 
                 # Should return dictionary with text and data
                 assert isinstance(result, dict)
@@ -232,7 +232,7 @@ class TestDiagnosticTools:
             # Mock WSL detection
             mock_exists.return_value = True  # /proc/sys/fs/binfmt_misc/WSLInterop exists
             
-            result = await check_audio_dependencies.fn()
+            result = await check_audio_dependencies()
             
             # Should return dictionary
             assert isinstance(result, dict)
@@ -264,7 +264,7 @@ class TestDiagnosticTools:
                     
             mock_query.side_effect = query_side_effect
             
-            result = await check_audio_devices.fn()
+            result = await check_audio_devices()
             
             # Should return formatted string
             assert isinstance(result, str)

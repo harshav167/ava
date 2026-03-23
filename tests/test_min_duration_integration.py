@@ -20,7 +20,7 @@ class TestMinDurationIntegration:
         from voice_mode.tools.converse import converse
         
         # Get the actual function from the MCP tool wrapper
-        converse_func = converse.fn
+        converse_func = converse
         
         # Mock required dependencies
         with patch('voice_mode.tools.converse.startup_initialization', new_callable=AsyncMock):
@@ -63,7 +63,7 @@ class TestMinDurationIntegration:
         from voice_mode.tools.converse import converse
         
         # Get the actual function from the MCP tool wrapper
-        converse_func = converse.fn
+        converse_func = converse
         
         # Mock all dependencies
         with patch('voice_mode.tools.converse.startup_initialization', new_callable=AsyncMock):
