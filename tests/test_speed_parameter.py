@@ -112,7 +112,7 @@ class TestSpeedParameter:
                 result = await converse(
                     message="Test",
                     wait_for_response=False,
-                    speed=0.25
+                    speed=0.7
                 )
                 assert "Message spoken successfully" in result
                 
@@ -120,7 +120,7 @@ class TestSpeedParameter:
                 result = await converse(
                     message="Test",
                     wait_for_response=False,
-                    speed=4.0
+                    speed=1.2
                 )
                 assert "Message spoken successfully" in result
                 
@@ -128,7 +128,7 @@ class TestSpeedParameter:
                 result = await converse(
                     message="Test",
                     wait_for_response=False,
-                    speed=2
+                    speed=1.0
                 )
                 assert "Message spoken successfully" in result
 
@@ -149,7 +149,7 @@ class TestSpeedParameter:
                     assert "Message spoken successfully" in result
                     # Verify speed was taken from TTS_SPEED config
                     _, kwargs = mock_tts.call_args
-                    assert kwargs['speed'] == 1.3
+                    assert kwargs['speed'] == 1.0
 
     @pytest.mark.asyncio
     async def test_speed_explicit_overrides_config(self):
@@ -162,13 +162,13 @@ class TestSpeedParameter:
                     result = await converse(
                         message="Test",
                         wait_for_response=False,
-                        speed=2.0  # Explicit speed should win
+                        speed=1.1  # Explicit speed should win
                     )
 
                     assert "Message spoken successfully" in result
                     # Verify explicit speed overrode config
                     _, kwargs = mock_tts.call_args
-                    assert kwargs['speed'] == 2.0
+                    assert kwargs['speed'] == 1.1
 
     @pytest.mark.asyncio
     async def test_speed_config_out_of_range_error(self):
