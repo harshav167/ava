@@ -222,6 +222,50 @@ async def realtime_transcribe(
     elapsed_total = time.perf_counter() - start_time
 
     if error_message and not committed_text:
+        # Try batch fallback with cached audio — NEVER lose user's speech
+        from pathlib import Path
+        cache_file = Path.home() / ".voicemode" / "cache" / "last_recording.raw"
+        if cache_file.exists():
+            try:
+                logger.info("Realtime STT failed — attempting batch transcription from cached audio")
+                cached_audio = np.fromfile(str(cache_file), dtype=np.int16)
+                if len(cached_audio) > SCRIBE_SAMPLE_RATE:  # At least 1s of audio
+                    import io
+                    import wave
+                    wav_buffer = io.BytesIO()
+                    with wave.open(wav_buffer, 'wb') as wf:
+                        wf.setnchannels(1)
+                        wf.setsampwidth(2)  # 16-bit
+                        wf.setframerate(SCRIBE_SAMPLE_RATE)
+                        wf.writeframes(cached_audio.tobytes())
+                    wav_buffer.seek(0)
+                    wav_buffer.name = "cached_recording.wav"
+
+                    from .elevenlabs_client import elevenlabs_stt_batch
+                    from .config import ELEVENLABS_API_KEY
+                    batch_result = elevenlabs_stt_batch(
+                        audio_file=wav_buffer,
+                        model_id="scribe_v2",
+                        language_code="en",
+                        api_key=ELEVENLABS_API_KEY,
+                    )
+                    text = batch_result.get("text", "").strip()
+                    if text:
+                        logger.info(f"Batch fallback succeeded: '{text[:80]}'")
+                        cache_file.unlink(missing_ok=True)
+                        return {
+                            "text": text,
+                            "provider": "elevenlabs",
+                            "endpoint": "scribe_v2_batch_fallback",
+                            "metrics": {
+                                "is_local": False,
+                                "request_time_ms": round(elapsed_total * 1000, 1),
+                                "vad_mode": "batch_fallback_from_cache",
+                            },
+                        }
+            except Exception as e:
+                logger.error(f"Batch fallback from cache failed: {e}")
+
         return {
             "error_type": "connection_failed",
             "provider": "elevenlabs",
@@ -285,6 +329,10 @@ async def _stream_microphone_with_local_vad(
     last_commit_time = time.perf_counter()  # For periodic commits per ElevenLabs docs
     PERIODIC_COMMIT_SECS = 25.0  # ElevenLabs recommends committing every 20-30s
 
+    # Audio cache — save all PCM chunks so speech is NEVER lost
+    # If ElevenLabs connection dies, we can batch-transcribe the cached audio
+    audio_cache: list = []
+
     try:
         logger.info(
             f"ElevenLabs Realtime STT: mic capture at {SCRIBE_SAMPLE_RATE}Hz "
@@ -317,6 +365,9 @@ async def _stream_microphone_with_local_vad(
                     break
                 if overflowed:
                     logger.debug("ElevenLabs STT: audio buffer overflow")
+
+                # Cache audio for crash resilience — if ElevenLabs dies, we can batch-transcribe
+                audio_cache.append(data.copy())
 
                 # Send base64-encoded PCM to ElevenLabs WebSocket (for transcription)
                 audio_b64 = base64.b64encode(data.tobytes()).decode("utf-8")
@@ -406,3 +457,17 @@ async def _stream_microphone_with_local_vad(
         logger.debug("ElevenLabs STT: mic streaming cancelled")
     except Exception as e:
         logger.error(f"ElevenLabs STT: mic streaming error: {e}")
+
+    # Save cached audio to disk for crash resilience
+    if audio_cache:
+        try:
+            import io
+            from pathlib import Path
+            cache_dir = Path.home() / ".voicemode" / "cache"
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = cache_dir / "last_recording.raw"
+            all_audio = np.concatenate(audio_cache)
+            all_audio.tofile(str(cache_file))
+            logger.info(f"Audio cached: {len(all_audio)} samples ({len(all_audio)/SCRIBE_SAMPLE_RATE:.1f}s) → {cache_file}")
+        except Exception as e:
+            logger.error(f"Failed to cache audio: {e}")
