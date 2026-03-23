@@ -99,9 +99,30 @@ async def elevenlabs_tts(
 
                     # Collect audio bytes with timeout protection
                     audio_bytes = b"".join(audio_iterator)
-                    if not audio_bytes:
-                        logger.warning(f"ElevenLabs TTS chunk {i+1} returned empty audio")
-                        continue
+
+                    # Retry once if we got zero bytes
+                    if len(audio_bytes) == 0:
+                        logger.warning(f"ElevenLabs TTS chunk {i+1} returned 0 bytes, retrying in 1s...")
+                        import time as _retry_time
+                        _retry_time.sleep(1)
+                        retry_iterator = el_client.text_to_speech.convert(
+                            text=chunk_text,
+                            voice_id=el_voice,
+                            model_id=el_model,
+                            output_format="mp3_44100_128",
+                            voice_settings=VoiceSettings(
+                                speed=speed,
+                                stability=0.5,
+                                similarity_boost=0.8,
+                                use_speaker_boost=False,
+                            ),
+                        )
+                        audio_bytes = b"".join(retry_iterator)
+                        if len(audio_bytes) == 0:
+                            logger.error(f"ElevenLabs TTS chunk {i+1} still 0 bytes after retry, skipping")
+                            continue
+
+                    logger.info(f"ElevenLabs TTS chunk {i+1} collected {len(audio_bytes)} bytes")
 
                     # Write to temp file and play with ffplay + timeout
                     # start_new_session=True isolates ffplay in its own process group

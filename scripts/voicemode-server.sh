@@ -7,6 +7,7 @@
 #   ./scripts/voicemode-server.sh restart  # Stop + start
 #   ./scripts/voicemode-server.sh status   # Check if running
 #   ./scripts/voicemode-server.sh logs     # Tail server logs
+#   ./scripts/voicemode-server.sh health   # Health check via MCP initialize handshake
 #   ./scripts/voicemode-server.sh setup    # Create/update launchd plist + start
 
 LABEL="com.voicemode.server"
@@ -150,8 +151,22 @@ case "${1:-status}" in
     logs)
         tail -f "$LOG_DIR/server.err"
         ;;
+    health)
+        # MCP initialize handshake health check
+        response=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 \
+            -X POST http://127.0.0.1:$PORT/mcp \
+            -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"healthcheck","version":"1.0.0"}}}' \
+            2>&1)
+        if [ "$response" = "200" ]; then
+            echo "Healthy"
+        else
+            echo "Unhealthy: HTTP $response"
+            exit 1
+        fi
+        ;;
     *)
-        echo "Usage: $0 {setup|start|stop|restart|status|logs}"
+        echo "Usage: $0 {setup|start|stop|restart|status|logs|health}"
         exit 1
         ;;
 esac

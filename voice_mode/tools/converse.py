@@ -1497,11 +1497,14 @@ set wait_for_conch=true to queue, or try again later.
                         previous_text=message[:50] if message else None,
                     )
 
-                    # Retry once on connection_failed (includes resource_exhausted)
-                    if isinstance(stt_result, dict) and stt_result.get("error_type") == "connection_failed":
+                    # Exponential backoff retries on connection_failed (includes resource_exhausted)
+                    _backoff_delays = [1, 2, 4]
+                    for _retry_i, _delay in enumerate(_backoff_delays):
+                        if not (isinstance(stt_result, dict) and stt_result.get("error_type") == "connection_failed"):
+                            break
                         error_msg = stt_result.get("error", "")
-                        logger.warning(f"Realtime STT failed: {error_msg}. Retrying in 2s...")
-                        await asyncio.sleep(2)
+                        logger.warning(f"Realtime STT failed: {error_msg}. Retry {_retry_i + 1}/{len(_backoff_delays)} in {_delay}s...")
+                        await asyncio.sleep(_delay)
                         stt_result = await realtime_transcribe(
                             api_key=ELEVENLABS_API_KEY,
                             max_duration=listen_duration_max,
@@ -1511,10 +1514,10 @@ set wait_for_conch=true to queue, or try again later.
                             disable_silence_detection=disable_silence_detection,
                         )
 
-                    # If realtime still failed, fall back to batch (record + upload)
+                    # If realtime still failed after all retries, fall back to batch (record + upload)
                     if isinstance(stt_result, dict) and stt_result.get("error_type") == "connection_failed":
                         stt_model_used = "scribe_v2"
-                        logger.warning("Realtime STT failed twice. Falling back to batch record+transcribe.")
+                        logger.warning(f"Realtime STT failed after {len(_backoff_delays)} retries. Falling back to batch record+transcribe.")
                         # Use the traditional path: record locally, then batch STT
                         audio_data, speech_detected = await asyncio.get_event_loop().run_in_executor(
                             None, record_audio_with_silence_detection, listen_duration_max, disable_silence_detection, listen_duration_min, vad_aggressiveness
