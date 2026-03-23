@@ -47,6 +47,7 @@ dependencies = [
     "keyring>=25.0.0",
     "elevenlabs>=1.0.0",  # ElevenLabs TTS/STT provider
     "soundfile>=0.13.1",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",  # Media key simulation for audio ducking
 ]
 
 [project.optional-dependencies]

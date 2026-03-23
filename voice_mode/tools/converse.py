@@ -210,28 +210,8 @@ def set_dj_volume(volume: float) -> bool:
     return False
 
 
-class DJDucker:
-    """Context manager for ducking DJ volume during TTS playback."""
-
-    def __init__(self, duck_amount: int = None):
-        self.duck_amount = duck_amount if duck_amount is not None else DJ_VOLUME_DUCK_AMOUNT
-        self.original_volume: Optional[float] = None
-        self.ducked = False
-
-    def __enter__(self):
-        self.original_volume = get_dj_volume()
-        if self.original_volume is not None:
-            ducked_volume = max(0, self.original_volume - self.duck_amount)
-            if set_dj_volume(ducked_volume):
-                self.ducked = True
-                logger.debug(f"DJ ducked: {self.original_volume:.0f}% -> {ducked_volume:.0f}%")
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.ducked and self.original_volume is not None:
-            if set_dj_volume(self.original_volume):
-                logger.debug(f"DJ restored: {self.original_volume:.0f}%")
-        return False  # Don't suppress exceptions
+# DJDucker is now in voice_mode.audio_ducker (media-key based pause/resume).
+from voice_mode.audio_ducker import DJDucker  # noqa: E402
 
 
 def should_repeat(text: str) -> bool:
