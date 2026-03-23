@@ -63,8 +63,11 @@ class TestRealtimeSTTSuccess:
         conn = FakeConnection()
 
         async def fake_connect(opts):
-            loop = asyncio.get_event_loop()
-            loop.call_soon(lambda: conn.fire("session_started", {}))
+            # Fire session_started after a small delay so handlers are registered first
+            async def _fire_later():
+                await asyncio.sleep(0.1)
+                conn.fire("session_started", {})
+            asyncio.create_task(_fire_later())
             return conn
 
         mock_client = MagicMock()
@@ -98,8 +101,8 @@ class TestRealtimeSTTSuccess:
         conn = FakeConnection()
 
         async def fake_connect(opts):
-            loop = asyncio.get_event_loop()
-            loop.call_soon(lambda: conn.fire("session_started", {}))
+            async def _fire(): await asyncio.sleep(0.05); conn.fire("session_started", {})
+            asyncio.create_task(_fire())
             return conn
 
         mock_client = MagicMock()
@@ -142,8 +145,8 @@ class TestRealtimeSTTErrors:
         conn = FakeConnection()
 
         async def fake_connect(opts):
-            loop = asyncio.get_event_loop()
-            loop.call_soon(lambda: conn.fire("session_started", {}))
+            async def _fire(): await asyncio.sleep(0.05); conn.fire("session_started", {})
+            asyncio.create_task(_fire())
             return conn
 
         mock_client = MagicMock()
@@ -249,8 +252,8 @@ class TestRealtimeSTTErrors:
         conn = FakeConnection()
 
         async def fake_connect(opts):
-            loop = asyncio.get_event_loop()
-            loop.call_soon(lambda: conn.fire("session_started", {}))
+            async def _fire(): await asyncio.sleep(0.05); conn.fire("session_started", {})
+            asyncio.create_task(_fire())
             return conn
 
         mock_client = MagicMock()
