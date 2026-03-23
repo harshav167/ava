@@ -758,6 +758,25 @@ def setup_logging() -> logging.Logger:
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     logger = logging.getLogger("voicemode")
+
+    # ALWAYS write structured logs to file for crash investigation
+    log_dir = Path.home() / ".voicemode" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    structured_log_file = log_dir / "voicemode.log"
+    file_handler = logging.FileHandler(structured_log_file, mode='a')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter(
+        '%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d - %(message)s'
+    ))
+    logger.addHandler(file_handler)
+    # Also capture uncaught exceptions
+    import sys
+    def _uncaught_exception_handler(exc_type, exc_value, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_value, exc_tb)
+            return
+        logger.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
+    sys.excepthook = _uncaught_exception_handler
     
     # Trace logging setup
     if TRACE_DEBUG:
