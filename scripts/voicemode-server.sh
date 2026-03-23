@@ -49,6 +49,8 @@ create_plist() {
     <true/>
     <key>RunAtLoad</key>
     <true/>
+    <key>ThrottleInterval</key>
+    <integer>5</integer>
     <key>StandardOutPath</key>
     <string>$LOG_DIR/server.log</string>
     <key>StandardErrorPath</key>

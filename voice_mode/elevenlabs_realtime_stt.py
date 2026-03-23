@@ -83,7 +83,8 @@ async def realtime_transcribe(
         vad_prob_threshold = 0.3  # Still track VAD but don't act on it
     else:
         # Aggressiveness 0=tolerant (longer silence ok), 3=strict (short silence triggers)
-        silence_map = {0: 1.5, 1: 0.8, 2: 0.5, 3: 0.3}
+        # Increased from Osaurus values — ElevenLabs realtime needs more buffer
+        silence_map = {0: 3.0, 1: 2.0, 2: 1.2, 3: 0.8}
         silence_secs = silence_map.get(vad_aggressiveness, 0.8)
         vad_prob_threshold = get_threshold_for_aggressiveness(vad_aggressiveness)
 
