@@ -44,6 +44,7 @@ async def realtime_transcribe(
     vad_silence_threshold: float = 2.0,
     vad_aggressiveness: int = 1,
     disable_silence_detection: bool = False,
+    previous_text: Optional[str] = None,
 ) -> Optional[dict]:
     """
     Stream microphone audio to ElevenLabs Scribe v2 Realtime via WebSocket.
@@ -184,6 +185,7 @@ async def realtime_transcribe(
         _stream_microphone_with_local_vad(
             connection, max_duration, min_duration, start_time,
             silence_secs, vad_prob_threshold, disable_silence_detection,
+            previous_text=previous_text,
         )
     )
 
@@ -251,6 +253,7 @@ async def _stream_microphone_with_local_vad(
     silence_threshold_secs: float,
     vad_prob_threshold: float,
     disable_silence_detection: bool,
+    previous_text: Optional[str] = None,
 ):
     """
     Stream microphone audio to ElevenLabs WebSocket while running
@@ -273,7 +276,9 @@ async def _stream_microphone_with_local_vad(
     # VAD state tracking
     speech_detected_ever = False
     silence_start = None  # When silence began
-    last_speech_time = time.perf_counter()
+    first_chunk = True  # Send previous_text with first chunk only
+    last_commit_time = time.perf_counter()  # For periodic commits per ElevenLabs docs
+    PERIODIC_COMMIT_SECS = 25.0  # ElevenLabs recommends committing every 20-30s
 
     try:
         logger.info(
@@ -310,11 +315,32 @@ async def _stream_microphone_with_local_vad(
 
                 # Send base64-encoded PCM to ElevenLabs WebSocket (for transcription)
                 audio_b64 = base64.b64encode(data.tobytes()).decode("utf-8")
+                send_payload = {"audio_base_64": audio_b64}
+
+                # Send previous_text context with the FIRST audio chunk only
+                # ElevenLabs docs: "helps the model understand conversation context"
+                if first_chunk and previous_text:
+                    # Truncate to <50 chars per ElevenLabs recommendation
+                    send_payload["previous_text"] = previous_text[:50]
+                    first_chunk = False
+                elif first_chunk:
+                    first_chunk = False
+
                 try:
-                    await connection.send({"audio_base_64": audio_b64})
+                    await connection.send(send_payload)
                 except Exception as e:
                     logger.error(f"ElevenLabs STT: failed to send audio chunk: {e}")
                     break
+
+                # Periodic commit every 25s for long recordings (ElevenLabs recommends 20-30s)
+                now_for_commit = time.perf_counter()
+                if (now_for_commit - last_commit_time) >= PERIODIC_COMMIT_SECS:
+                    logger.info(f"Periodic commit at {elapsed:.1f}s")
+                    try:
+                        await connection.commit()
+                        last_commit_time = now_for_commit
+                    except Exception as e:
+                        logger.debug(f"Periodic commit failed (non-fatal): {e}")
 
                 # Run local Silero VAD on sub-chunks (512 samples each)
                 if vad is not None and not disable_silence_detection:

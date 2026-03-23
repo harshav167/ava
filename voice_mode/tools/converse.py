@@ -1486,6 +1486,7 @@ set wait_for_conch=true to queue, or try again later.
                     record_start = time.perf_counter()
 
                     # Try realtime STT with local Silero VAD + manual commit
+                    # Pass the TTS message as previous_text for transcription context
                     stt_result = await realtime_transcribe(
                         api_key=ELEVENLABS_API_KEY,
                         max_duration=listen_duration_max,
@@ -1493,6 +1494,7 @@ set wait_for_conch=true to queue, or try again later.
                         language_code=_el_language if _el_language and _el_language != "auto" else None,
                         vad_aggressiveness=vad_aggressiveness,
                         disable_silence_detection=disable_silence_detection,
+                        previous_text=message[:50] if message else None,
                     )
 
                     # Retry once on connection_failed (includes resource_exhausted)
