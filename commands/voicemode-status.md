@@ -2,7 +2,7 @@
 description: Check VoiceMode service status
 ---
 
-# /voicemode:status
+# /voicemode:voicemode-status
 
 Check ElevenLabs connectivity and VoiceMode configuration.
 

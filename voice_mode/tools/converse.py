@@ -1083,6 +1083,12 @@ Call converse(msg, wait_for_response=false) alongside other tools in the same tu
 
 CONCH: Only one agent can use the mic at a time. If you get "User is currently speaking",
 set wait_for_conch=true to queue, or try again later.
+
+CLAUDE DESKTOP (60s TIMEOUT):
+Claude Desktop enforces a hardcoded 60-second MCP timeout. Split speak+listen into two calls:
+1. converse(message="...", wait_for_response=false) — speak only
+2. converse(message="", skip_tts=true, listen_duration_max=50, timeout=55) — listen only
+Keep each call under 60s total. See /converse-cowork command for full pattern.
     """
     # Convert string booleans to actual booleans
     if isinstance(wait_for_response, str):
