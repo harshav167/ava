@@ -1,9 +1,7 @@
 """Tests for the chapters module."""
 
-import pytest
 
 from voice_mode.dj.chapters import (
-    Chapter,
     convert_cue_to_ffmetadata,
     get_chapter_count,
     parse_cue_content,

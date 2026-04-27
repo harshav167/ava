@@ -7,9 +7,7 @@ were removed because:
    which imports pydub, causing audioop deprecation warnings for simple CLI commands
 """
 
-import subprocess
 import json
-import re
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -96,7 +94,7 @@ def get_whisper_version() -> Dict[str, Any]:
             info["pid"] = proc.pid
             try:
                 info["uptime_seconds"] = int(proc.create_time())
-            except:
+            except Exception:
                 pass
                 
     except Exception as e:
@@ -130,7 +128,7 @@ def get_kokoro_version() -> Dict[str, Any]:
                 version = get_current_version(Path(kokoro_dir))
                 if version:
                     info["version"] = version
-            except:
+            except Exception:
                 pass
             
             # Check if running and get API version
@@ -140,7 +138,7 @@ def get_kokoro_version() -> Dict[str, Any]:
                 info["pid"] = proc.pid
                 try:
                     info["uptime_seconds"] = int(proc.create_time())
-                except:
+                except Exception:
                     pass
                 
                 # Try to get version from API
@@ -214,7 +212,7 @@ def get_service_files_version() -> Dict[str, str]:
             with open(versions_file) as f:
                 data = json.load(f)
                 return data.get("service_files", {})
-        except:
+        except Exception:
             pass
     return {}
 

@@ -6,13 +6,11 @@ including turnaround times, processing speeds, and session statistics.
 """
 
 import time
-import json
 import threading
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
-from statistics import mean, median
-from pathlib import Path
+from statistics import mean
 
 import logging
 
@@ -161,90 +159,74 @@ class ConversationStatistics:
         
         self.add_metric(metric)
         
+    def _build_session_statistics(self) -> SessionStatistics:
+        """Build session statistics while the caller holds the lock."""
+        if not self._metrics:
+            return SessionStatistics(start_time=self._session_start)
+
+        successful_metrics = [m for m in self._metrics if m.success]
+
+        def safe_stat(values: List[float], stat_func):
+            if not values:
+                return None
+            return stat_func(values)
+
+        def safe_values(metrics: List[ConversationMetric], attr: str) -> List[float]:
+            return [getattr(m, attr) for m in metrics if getattr(m, attr) is not None]
+
+        ttfa_values = safe_values(successful_metrics, 'ttfa')
+        tts_gen_values = safe_values(successful_metrics, 'tts_generation')
+        tts_play_values = safe_values(successful_metrics, 'tts_playback')
+        stt_values = safe_values(successful_metrics, 'stt_processing')
+        total_values = safe_values(successful_metrics, 'total_time')
+
+        voice_providers = {}
+        transports = {}
+        voices = {}
+        models = {}
+
+        for metric in self._metrics:
+            if metric.voice_provider:
+                voice_providers[metric.voice_provider] = voice_providers.get(metric.voice_provider, 0) + 1
+            if metric.transport:
+                transports[metric.transport] = transports.get(metric.transport, 0) + 1
+            if metric.voice_name:
+                voices[metric.voice_name] = voices.get(metric.voice_name, 0) + 1
+            if metric.model:
+                models[metric.model] = models.get(metric.model, 0) + 1
+
+        return SessionStatistics(
+            start_time=self._session_start,
+            total_interactions=len(self._metrics),
+            successful_interactions=len(successful_metrics),
+            failed_interactions=len(self._metrics) - len(successful_metrics),
+            avg_ttfa=safe_stat(ttfa_values, mean),
+            min_ttfa=safe_stat(ttfa_values, min),
+            max_ttfa=safe_stat(ttfa_values, max),
+            avg_tts_generation=safe_stat(tts_gen_values, mean),
+            min_tts_generation=safe_stat(tts_gen_values, min),
+            max_tts_generation=safe_stat(tts_gen_values, max),
+            avg_tts_playback=safe_stat(tts_play_values, mean),
+            min_tts_playback=safe_stat(tts_play_values, min),
+            max_tts_playback=safe_stat(tts_play_values, max),
+            avg_stt_processing=safe_stat(stt_values, mean),
+            min_stt_processing=safe_stat(stt_values, min),
+            max_stt_processing=safe_stat(stt_values, max),
+            avg_total_time=safe_stat(total_values, mean),
+            min_total_time=safe_stat(total_values, min),
+            max_total_time=safe_stat(total_values, max),
+            voice_providers_used=voice_providers,
+            transports_used=transports,
+            voices_used=voices,
+            models_used=models,
+            session_duration=time.time() - self._session_start,
+        )
+
     def get_session_statistics(self) -> SessionStatistics:
         """Calculate current session statistics."""
         with self._lock:
-            if not self._metrics:
-                return SessionStatistics(start_time=self._session_start)
-                
-            successful_metrics = [m for m in self._metrics if m.success]
-            
-            def safe_stat(values: List[float], stat_func):
-                """Safely calculate statistics, handling empty lists."""
-                if not values:
-                    return None
-                return stat_func(values)
-            
-            def safe_values(metrics: List[ConversationMetric], attr: str) -> List[float]:
-                """Extract non-None values for an attribute."""
-                return [getattr(m, attr) for m in metrics if getattr(m, attr) is not None]
-            
-            # Calculate timing statistics from successful interactions
-            ttfa_values = safe_values(successful_metrics, 'ttfa')
-            tts_gen_values = safe_values(successful_metrics, 'tts_generation')
-            tts_play_values = safe_values(successful_metrics, 'tts_playback')
-            stt_values = safe_values(successful_metrics, 'stt_processing')
-            total_values = safe_values(successful_metrics, 'total_time')
-            
-            # Count provider usage
-            voice_providers = {}
-            transports = {}
-            voices = {}
-            models = {}
-            
-            for metric in self._metrics:
-                if metric.voice_provider:
-                    voice_providers[metric.voice_provider] = voice_providers.get(metric.voice_provider, 0) + 1
-                if metric.transport:
-                    transports[metric.transport] = transports.get(metric.transport, 0) + 1
-                if metric.voice_name:
-                    voices[metric.voice_name] = voices.get(metric.voice_name, 0) + 1
-                if metric.model:
-                    models[metric.model] = models.get(metric.model, 0) + 1
-            
-            stats = SessionStatistics(
-                start_time=self._session_start,
-                total_interactions=len(self._metrics),
-                successful_interactions=len(successful_metrics),
-                failed_interactions=len(self._metrics) - len(successful_metrics),
-                
-                # TTFA statistics
-                avg_ttfa=safe_stat(ttfa_values, mean),
-                min_ttfa=safe_stat(ttfa_values, min),
-                max_ttfa=safe_stat(ttfa_values, max),
-                
-                # TTS generation statistics
-                avg_tts_generation=safe_stat(tts_gen_values, mean),
-                min_tts_generation=safe_stat(tts_gen_values, min),
-                max_tts_generation=safe_stat(tts_gen_values, max),
-                
-                # TTS playback statistics
-                avg_tts_playback=safe_stat(tts_play_values, mean),
-                min_tts_playback=safe_stat(tts_play_values, min),
-                max_tts_playback=safe_stat(tts_play_values, max),
-                
-                # STT statistics
-                avg_stt_processing=safe_stat(stt_values, mean),
-                min_stt_processing=safe_stat(stt_values, min),
-                max_stt_processing=safe_stat(stt_values, max),
-                
-                # Total time statistics
-                avg_total_time=safe_stat(total_values, mean),
-                min_total_time=safe_stat(total_values, min),
-                max_total_time=safe_stat(total_values, max),
-                
-                # Provider usage
-                voice_providers_used=voice_providers,
-                transports_used=transports,
-                voices_used=voices,
-                models_used=models,
-                
-                # Session duration
-                session_duration=time.time() - self._session_start
-            )
-            
-            return stats
-    
+            return self._build_session_statistics()
+
     def get_recent_metrics(self, limit: int = 10) -> List[ConversationMetric]:
         """Get the most recent conversation metrics."""
         with self._lock:
@@ -259,10 +241,11 @@ class ConversationStatistics:
     def export_metrics(self) -> Dict[str, Any]:
         """Export all metrics and statistics as a dictionary."""
         with self._lock:
+            stats = self._build_session_statistics()
             return {
                 'session_start': self._session_start,
                 'metrics': [asdict(m) for m in self._metrics],
-                'statistics': asdict(self.get_session_statistics())
+                'statistics': asdict(stats)
             }
     
     def format_dashboard(self) -> str:
@@ -276,7 +259,7 @@ class ConversationStatistics:
         
         # Session overview
         duration = timedelta(seconds=int(stats.session_duration or 0))
-        lines.append(f"\n📊 SESSION OVERVIEW")
+        lines.append("\n📊 SESSION OVERVIEW")
         lines.append(f"Duration: {duration}")
         lines.append(f"Total Interactions: {stats.total_interactions}")
         lines.append(f"Successful: {stats.successful_interactions}")
@@ -287,7 +270,7 @@ class ConversationStatistics:
         
         # Performance metrics
         if stats.successful_interactions > 0:
-            lines.append(f"\n⚡ PERFORMANCE METRICS (seconds)")
+            lines.append("\n⚡ PERFORMANCE METRICS (seconds)")
             lines.append("-" * 30)
             
             def format_stat(label: str, avg: Optional[float], min_val: Optional[float], max_val: Optional[float]):
@@ -312,7 +295,7 @@ class ConversationStatistics:
         
         # Provider usage
         if any([stats.voice_providers_used, stats.transports_used, stats.voices_used]):
-            lines.append(f"\n🔧 PROVIDER USAGE")
+            lines.append("\n🔧 PROVIDER USAGE")
             lines.append("-" * 30)
             
             if stats.voice_providers_used:

@@ -1,6 +1,5 @@
 """FFmpeg detection and installation helper for voice-mode."""
 
-import os
 import platform
 import shutil
 import subprocess

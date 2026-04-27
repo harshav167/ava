@@ -94,7 +94,7 @@ def parse_hook_arguments(args: list) -> Optional[Dict[str, Any]]:
     if len(args) > 3:
         try:
             hook_data["metadata"] = json.loads(args[3])
-        except:
+        except Exception:
             hook_data["metadata"] = {}
             
     return hook_data

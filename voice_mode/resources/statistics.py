@@ -1,7 +1,6 @@
 """MCP resources for voice conversation statistics."""
 
 import json
-from typing import Dict, Any
 
 from ..server import mcp
 from ..statistics import get_statistics_tracker

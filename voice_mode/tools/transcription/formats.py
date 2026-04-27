@@ -2,7 +2,7 @@
 
 import csv
 import io
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from .types import TranscriptionResult, OutputFormat
 

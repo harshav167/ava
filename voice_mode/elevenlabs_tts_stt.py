@@ -6,6 +6,11 @@ All voice synthesis and transcription goes through ElevenLabs.
 
 import asyncio
 import logging
+import os
+import signal
+import subprocess
+import tempfile
+import threading
 from typing import Optional, Tuple, Dict, Any
 
 from .config import (
@@ -17,6 +22,39 @@ from .config import (
 WHISPER_LANGUAGE = STT_LANGUAGE
 
 logger = logging.getLogger("voicemode")
+
+_playback_process_lock = threading.Lock()
+_current_playback_cancel_event: threading.Event | None = None
+_current_playback_process: subprocess.Popen | None = None
+
+
+def stop_current_playback() -> None:
+    """Stop any active ffplay process started by ElevenLabs TTS."""
+    global _current_playback_process, _current_playback_cancel_event
+    with _playback_process_lock:
+        proc = _current_playback_process
+        cancel_event = _current_playback_cancel_event
+        _current_playback_process = None
+        _current_playback_cancel_event = None
+
+    if cancel_event is not None:
+        cancel_event.set()
+
+    if proc is None:
+        return
+
+    try:
+        if proc.poll() is None:
+            os.killpg(proc.pid, signal.SIGTERM)
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                os.killpg(proc.pid, signal.SIGKILL)
+                proc.wait(timeout=2)
+    except ProcessLookupError:
+        pass
+    except Exception as e:
+        logger.warning(f"Failed to stop active playback: {e}")
 
 
 async def elevenlabs_tts(
@@ -33,9 +71,14 @@ async def elevenlabs_tts(
     """
     logger.info(f"elevenlabs_tts called with: text='{text[:50]}...', voice={voice}, model={model}")
     logger.info(f"kwargs: {kwargs}")
+    playback_cancel_event = threading.Event()
+    global _current_playback_cancel_event
+    with _playback_process_lock:
+        _current_playback_cancel_event = playback_cancel_event
 
     try:
         from .elevenlabs_client import get_client
+        from .runtime_context import get_runtime_context
         from elevenlabs import VoiceSettings
         import time as _time
         import re
@@ -46,6 +89,7 @@ async def elevenlabs_tts(
         logger.info(f"ElevenLabs TTS: voice={el_voice}, model={el_model}")
 
         el_client = get_client(ELEVENLABS_API_KEY)
+        settings = get_runtime_context().provider_settings()
 
         speed = kwargs.get("speed")
         if speed is None:
@@ -78,26 +122,30 @@ async def elevenlabs_tts(
 
         def _generate_and_play(chunks):
             """Run blocking ElevenLabs convert+play in a thread."""
-            import subprocess
-            import tempfile
-            import os
-
+            global _current_playback_process, _current_playback_cancel_event
             for i, chunk_text in enumerate(chunks):
+                if playback_cancel_event.is_set():
+                    logger.info("ElevenLabs TTS playback cancelled before next chunk")
+                    break
                 logger.info(f"ElevenLabs TTS chunk {i+1}/{len(chunks)}: {len(chunk_text)} chars")
 
                 try:
-                    audio_iterator = el_client.text_to_speech.convert(
-                        text=chunk_text,
-                        voice_id=el_voice,
-                        model_id=el_model,
-                        output_format="mp3_44100_128",
-                        voice_settings=VoiceSettings(
+                    convert_kwargs = {
+                        "text": chunk_text,
+                        "voice_id": el_voice,
+                        "model_id": el_model,
+                        "output_format": "mp3_44100_128",
+                        "voice_settings": VoiceSettings(
                             speed=speed,
-                            stability=0.5,
-                            similarity_boost=0.8,
-                            use_speaker_boost=False,
+                            stability=settings.elevenlabs_voice_stability,
+                            similarity_boost=settings.elevenlabs_voice_similarity_boost,
+                            style=settings.elevenlabs_voice_style,
+                            use_speaker_boost=settings.elevenlabs_voice_use_speaker_boost,
                         ),
-                    )
+                    }
+                    if settings.elevenlabs_voice_seed is not None:
+                        convert_kwargs["seed"] = settings.elevenlabs_voice_seed
+                    audio_iterator = el_client.text_to_speech.convert(**convert_kwargs)
 
                     # Collect audio bytes with timeout protection
                     audio_bytes = b"".join(audio_iterator)
@@ -107,24 +155,25 @@ async def elevenlabs_tts(
                         logger.warning(f"ElevenLabs TTS chunk {i+1} returned 0 bytes, retrying in 1s...")
                         import time as _retry_time
                         _retry_time.sleep(1)
-                        retry_iterator = el_client.text_to_speech.convert(
-                            text=chunk_text,
-                            voice_id=el_voice,
-                            model_id=el_model,
-                            output_format="mp3_44100_128",
-                            voice_settings=VoiceSettings(
-                                speed=speed,
-                                stability=0.5,
-                                similarity_boost=0.8,
-                                use_speaker_boost=False,
-                            ),
+                        retry_kwargs = dict(convert_kwargs)
+                        retry_kwargs["voice_settings"] = VoiceSettings(
+                            speed=speed,
+                            stability=settings.elevenlabs_voice_stability,
+                            similarity_boost=settings.elevenlabs_voice_similarity_boost,
+                            style=settings.elevenlabs_voice_style,
+                            use_speaker_boost=settings.elevenlabs_voice_use_speaker_boost,
                         )
+                        retry_iterator = el_client.text_to_speech.convert(**retry_kwargs)
                         audio_bytes = b"".join(retry_iterator)
                         if len(audio_bytes) == 0:
                             logger.error(f"ElevenLabs TTS chunk {i+1} still 0 bytes after retry, skipping")
                             continue
 
                     logger.info(f"ElevenLabs TTS chunk {i+1} collected {len(audio_bytes)} bytes")
+
+                    if playback_cancel_event.is_set():
+                        logger.info(f"ElevenLabs TTS chunk {i+1} cancelled before playback")
+                        break
 
                     # Write to temp file and play with ffplay + timeout
                     # start_new_session=True isolates ffplay in its own process group
@@ -133,39 +182,64 @@ async def elevenlabs_tts(
                     tmp.write(audio_bytes)
                     tmp.close()
 
+                    proc = None
                     try:
-                        proc = subprocess.run(
+                        proc = subprocess.Popen(
                             ["ffplay", "-autoexit", "-nodisp", tmp.name],
-                            timeout=120,  # 2 minute max per chunk
                             stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL,
                             start_new_session=True,  # Isolate: signals won't kill parent
                         )
+                        with _playback_process_lock:
+                            _current_playback_process = proc
+                            _current_playback_cancel_event = playback_cancel_event
+                        while proc.poll() is None:
+                            if playback_cancel_event.is_set():
+                                logger.info(f"ElevenLabs TTS chunk {i+1} cancelled — terminating ffplay")
+                                os.killpg(proc.pid, signal.SIGTERM)
+                                try:
+                                    proc.wait(timeout=2)
+                                except subprocess.TimeoutExpired:
+                                    os.killpg(proc.pid, signal.SIGKILL)
+                                    proc.wait(timeout=2)
+                                break
+                            try:
+                                proc.wait(timeout=0.1)
+                            except subprocess.TimeoutExpired:
+                                pass
+                        if playback_cancel_event.is_set():
+                            break
                         chunks_played.append(i)
                     except subprocess.TimeoutExpired:
                         logger.error(f"ffplay timed out on chunk {i+1}")
+                        if proc is not None:
+                            try:
+                                os.killpg(proc.pid, signal.SIGKILL)
+                                proc.wait(timeout=2)
+                            except Exception:
+                                pass
                     finally:
+                        with _playback_process_lock:
+                            if _current_playback_process is proc:
+                                _current_playback_process = None
                         os.unlink(tmp.name)
 
                 except Exception as e:
                     logger.error(f"ElevenLabs TTS chunk {i+1} failed: {e}")
                     # Continue to next chunk instead of crashing
 
-        # Duck other audio (pause Spotify/Music) during TTS playback
-        try:
-            from .audio_ducker import DJDucker
-            ducker = DJDucker
-        except ImportError:
-            from contextlib import contextmanager
-            @contextmanager
-            def _noop(): yield
-            ducker = _noop
-
-        with ducker():
-            # Run blocking TTS in a thread so the async event loop isn't frozen
-            await asyncio.to_thread(_generate_and_play, merged)
+        # Run blocking TTS in a thread so the async event loop isn't frozen.
+        # Media ducking is owned by the voice turn/session boundary.
+        await asyncio.to_thread(_generate_and_play, merged)
 
         total_time = _time.perf_counter() - gen_start
+
+        if playback_cancel_event.is_set():
+            raise asyncio.CancelledError()
+
+        with _playback_process_lock:
+            if _current_playback_cancel_event is playback_cancel_event:
+                _current_playback_cancel_event = None
 
         # If no chunks were successfully played, report failure
         if not chunks_played:
@@ -186,6 +260,11 @@ async def elevenlabs_tts(
         }
         logger.info(f"ElevenLabs TTS succeeded: {total_time:.2f}s")
         return True, metrics, config
+
+    except asyncio.CancelledError:
+        logger.warning("ElevenLabs TTS cancelled — stopping playback")
+        stop_current_playback()
+        raise
 
     except Exception as e:
         logger.error(f"ElevenLabs TTS failed: {e}")

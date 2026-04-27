@@ -1,7 +1,7 @@
 """Provider management tools for voice-mode."""
 
 import logging
-from typing import Optional, Union, Dict, Any
+from typing import Optional, Union
 
 from voice_mode.server import mcp
 from voice_mode.provider_discovery import provider_registry, detect_provider_type
@@ -70,7 +70,7 @@ async def refresh_provider_registry(
                         last_check=datetime.utcnow().isoformat() + "Z"
                     )
                     results.append(f"\n  ✅ {url}")
-                    results.append(f"     Status: Available (optimistic mode)")
+                    results.append("     Status: Available (optimistic mode)")
                 else:
                     # Non-optimistic mode: Actually discover endpoint capabilities
                     try:
@@ -135,7 +135,7 @@ async def get_provider_details(base_url: str) -> str:
         if endpoint_info.last_error:
             results.append(f"\n⚠️  Error: {endpoint_info.last_error}")
         else:
-            results.append(f"Status: ✅ Available")
+            results.append("Status: ✅ Available")
         
         if endpoint_info.models:
             results.append(f"\n📦 Models ({len(endpoint_info.models)}):")

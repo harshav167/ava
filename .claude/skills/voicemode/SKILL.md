@@ -50,7 +50,7 @@ Use the `converse` MCP tool. **Always use these defaults:**
 
 ```python
 # Speak and listen for response
-converse(message="Hello! What would you like to work on?", speed=1.2, listen_duration_min=5, listen_duration_max=60)
+converse(message="Hello! What would you like to work on?", listen_duration_min=5, listen_duration_max=300, timeout=300, wait_for_conch=true)
 
 # Speak without waiting (narration while working)
 converse(message="Searching the codebase now...", wait_for_response=false, speed=1.2)
@@ -63,19 +63,20 @@ converse(message="Go ahead, I'm listening.", disable_silence_detection=true, lis
 |-----------|---------|-------------|
 | `message` | required | Text to speak |
 | `wait_for_response` | true | Listen after speaking |
-| `speed` | `1.2` | **Always use 1.2** (max ElevenLabs speed) |
+| `speed` | server default `1.2` | Only pass when changing speed during a session |
 | `listen_duration_min` | `5` | Don't cut off mid-sentence |
-| `listen_duration_max` | `60` | Reasonable default |
+| `listen_duration_max` | `300` | Default maximum listen window |
+| `timeout` | `300` | Must be >= `listen_duration_max` |
 | `vad_aggressiveness` | `1` | VAD strictness (0-3). Lower = more tolerant of pauses. |
 | `disable_silence_detection` | `false` | Set `true` to record for full duration |
 | `metrics_level` | `summary` | Output detail: `minimal`, `summary`, or `verbose` |
-| `wait_for_conch` | `false` | Queue behind another speaker if one is active |
+| `wait_for_conch` | `true` | Queue behind another speaker if one is active |
 
 ## Best Practices
 
-1. **Voice-only communication** -- ALL responses go through `converse`, never text
-2. **Speed 1.2 always** -- Max ElevenLabs speed, user prefers fast speech
-3. **Narrate without waiting** -- Use `wait_for_response=false` when announcing actions
+1. **Voice-primary communication** -- substantive responses go through `converse`; if voice fails, stop and restore MCP instead of continuing chat-only
+2. **Trust server defaults** -- speed defaults to 1.2; pass optional parameters only when changing behavior
+3. **Narrate without waiting rarely** -- Use `wait_for_response=false` only for short acknowledgements before work
 4. **One question at a time** -- Don't bundle multiple questions
 5. **Parallel calls** -- Combine `converse(msg, wait_for_response=false)` with other tools in one turn for zero dead air
 6. **Long input** -- Set `disable_silence_detection=true` and `listen_duration_max=120` when user needs to speak at length

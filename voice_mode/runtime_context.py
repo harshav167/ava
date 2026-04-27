@@ -1,0 +1,1056 @@
+"""Deep runtime boundary for config, credentials, and auth access."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Iterable, Mapping, MutableMapping, Optional
+
+_TRUE_VALUES = {"true", "1", "yes", "on"}
+_VALID_METRICS_LEVELS = {"minimal", "summary", "verbose"}
+_DEFAULT_TOOLS = {"converse", "connect_status", "exchanges"}
+
+
+@dataclass(frozen=True)
+class AudioSettings:
+    sample_rate: int
+    channels: int
+    save_all: bool
+    save_audio: bool
+    save_transcriptions: bool
+    audio_feedback_enabled: bool
+    skip_tts: bool
+
+
+@dataclass(frozen=True)
+class ProviderSettings:
+    openai_api_key: str | None
+    elevenlabs_api_key: str
+    elevenlabs_tts_model: str
+    elevenlabs_tts_voice: str
+    elevenlabs_stt_model: str
+    elevenlabs_use_realtime_stt: bool
+    elevenlabs_voice_stability: float
+    elevenlabs_voice_similarity_boost: float
+    elevenlabs_voice_style: float
+    elevenlabs_voice_use_speaker_boost: bool
+    elevenlabs_voice_seed: int | None
+    tts_speed: float | None
+    tts_base_urls: tuple[str, ...]
+    stt_base_urls: tuple[str, ...]
+    tts_voices: tuple[str, ...]
+    tts_models: tuple[str, ...]
+    stt_language: str
+
+
+@dataclass(frozen=True)
+class LoggingSettings:
+    debug: bool
+    trace_debug: bool
+    vad_debug: bool
+    logs_dir: Path
+    debug_dir: Path
+    metrics_level: str
+    event_log_enabled: bool
+    event_log_dir: str
+    event_log_rotation: str
+
+
+@dataclass(frozen=True)
+class ServerSettings:
+    serve_host: str
+    serve_port: int
+    serve_transport: str
+
+
+@dataclass(frozen=True)
+class ToolSelection:
+    tools_to_load: set[str]
+    mode: str
+    invalid: set[str]
+    excluded: set[str]
+    nonexistent: set[str]
+    legacy_requested: bool = False
+
+
+@dataclass(frozen=True)
+class RuntimeSettings:
+    base_dir: Path
+    audio_dir: Path
+    transcriptions_dir: Path
+    logs_dir: Path
+    models_dir: Path
+    debug: bool
+    trace_debug: bool
+    vad_debug: bool
+    debug_dir: Path
+    save_all: bool
+    save_audio: bool
+    save_transcriptions: bool
+    audio_feedback_enabled: bool
+    skip_tts: bool
+    metrics_level: str
+    sample_rate: int
+    channels: int
+    tts_speed: float | None
+    tts_base_urls: tuple[str, ...]
+    stt_base_urls: tuple[str, ...]
+    tts_voices: tuple[str, ...]
+    tts_models: tuple[str, ...]
+    openai_api_key: str | None
+    elevenlabs_api_key: str
+    elevenlabs_tts_model: str
+    elevenlabs_tts_voice: str
+    elevenlabs_stt_model: str
+    elevenlabs_use_realtime_stt: bool
+    elevenlabs_voice_stability: float
+    elevenlabs_voice_similarity_boost: float
+    elevenlabs_voice_style: float
+    elevenlabs_voice_use_speaker_boost: bool
+    elevenlabs_voice_seed: int | None
+    stt_language: str
+    conch_enabled: bool
+    conch_timeout: float
+    conch_check_interval: float
+    event_log_enabled: bool
+    event_log_dir: str
+    event_log_rotation: str
+    serve_host: str
+    serve_port: int
+    serve_transport: str
+    audio: AudioSettings
+    providers: ProviderSettings
+    logging: LoggingSettings
+    server: ServerSettings
+
+
+@dataclass(frozen=True)
+class SessionAuth:
+    credentials: Any | None
+    user_info: Mapping[str, Any] | None = None
+
+    def is_authenticated(self) -> bool:
+        return self.credentials is not None
+
+    def require_access_token(self) -> str:
+        if not self.credentials:
+            raise RuntimeError("No credentials available")
+        token = getattr(self.credentials, "access_token", None)
+        if not token:
+            raise RuntimeError("Credentials do not contain an access token")
+        return token
+
+
+def _env_bool(environment: Mapping[str, str], env_var: str, default: bool = False) -> bool:
+    value = environment.get(env_var, "").lower()
+    return value in _TRUE_VALUES if value else default
+
+
+def _env_float(environment: Mapping[str, str], env_var: str, default: float) -> float:
+    value = environment.get(env_var)
+    return float(value) if value else default
+
+
+def _env_optional_int(environment: Mapping[str, str], env_var: str) -> int | None:
+    value = environment.get(env_var)
+    return int(value) if value else None
+
+
+def _expand_path(path_str: str) -> Path:
+    return Path(os.path.expanduser(os.path.expandvars(path_str)))
+
+
+def _parse_comma_list(environment: Mapping[str, str], env_var: str, fallback: str) -> list[str]:
+    return parse_comma_list(environment.get(env_var, fallback))
+
+
+def parse_comma_list(value: str) -> list[str]:
+    """Parse a comma-separated configuration value into non-empty items."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+class EnvFileLoader:
+    """Context-owned parser/loader for VoiceMode env files."""
+
+    DEFAULT_CONFIG = '''# Voice Mode Configuration File
+# This file is automatically generated and can be customized
+# Environment variables always take precedence over this file
+
+#############
+# Core Configuration
+#############
+
+# Base directory for all voicemode data (default: ~/.voicemode)
+# VOICEMODE_BASE_DIR=~/.voicemode
+
+# Models directory (default: ~/.voicemode/models)
+# VOICEMODE_MODELS_DIR=~/.voicemode/models
+
+# Enable debug mode (true/false)
+# VOICEMODE_DEBUG=false
+
+# Enable VAD debug logging (true/false)
+# VOICEMODE_VAD_DEBUG=false
+
+# Save all audio and transcriptions (true/false)
+# VOICEMODE_SAVE_ALL=false
+
+# Save audio files (true/false)
+# VOICEMODE_SAVE_AUDIO=false
+
+# Save transcription files (true/false)
+# VOICEMODE_SAVE_TRANSCRIPTIONS=false
+
+# Skip TTS for faster text-only responses (true/false)
+# VOICEMODE_SKIP_TTS=false
+
+# Metrics output level in converse results (minimal/summary/verbose)
+# - minimal: Just the response text, no timing (saves tokens)
+# - summary: Response + compact timing string (default)
+# - verbose: Response + detailed metrics breakdown
+# VOICEMODE_METRICS_LEVEL=summary
+
+# Enable audio feedback chimes (true/false)
+# VOICEMODE_AUDIO_FEEDBACK=true
+
+# Enable sound fonts for tool use hooks (true/false, default: true)
+# VOICEMODE_SOUNDFONTS_ENABLED=true
+
+#############
+# Tool Loading Configuration
+#############
+
+# Control which MCP tools are loaded to reduce token usage
+# Whitelist mode - only load specified tools (most efficient)
+# VOICEMODE_TOOLS_ENABLED=converse,service
+
+# Blacklist mode - load all tools except specified ones
+# VOICEMODE_TOOLS_DISABLED=pronunciation_add,pronunciation_remove
+
+# Examples:
+# Minimal (just voice conversation): VOICEMODE_TOOLS_ENABLED=converse
+# Voice + config: VOICEMODE_TOOLS_ENABLED=converse,service,config_get,config_set
+# Load all tools: VOICEMODE_TOOLS_DISABLED=
+# All except pronunciation: VOICEMODE_TOOLS_DISABLED=pronunciation_add,pronunciation_remove,pronunciation_list
+# Default: converse,connect_status,exchanges (basic voice interaction without service control)
+
+#############
+# MCP Prompt/Resource Loading
+#############
+
+# Control which MCP resources are loaded. Default keeps low-risk docs/version/audio metadata.
+# VOICEMODE_RESOURCES_ENABLED=version,docs_resources
+# VOICEMODE_RESOURCES_DISABLED=configuration,statistics
+
+# Control which MCP prompts are loaded. Default: converse only.
+# VOICEMODE_PROMPTS_ENABLED=converse,release_notes
+# VOICEMODE_PROMPTS_DISABLED=release_notes
+
+#############
+# Recording & Voice Activity Detection
+#############
+
+# Default maximum listening duration in seconds (default: 120)
+# VOICEMODE_DEFAULT_LISTEN_DURATION=120.0
+
+# Disable silence detection for noisy environments (true/false)
+# VOICEMODE_DISABLE_SILENCE_DETECTION=false
+
+# VAD aggressiveness level 0-3, higher = more strict (default: 3)
+# VOICEMODE_VAD_AGGRESSIVENESS=3
+
+# Silence threshold in milliseconds before stopping (default: 1000)
+# VOICEMODE_SILENCE_THRESHOLD_MS=1000
+
+# Minimum recording duration in seconds (default: 0.5)
+# VOICEMODE_MIN_RECORDING_DURATION=0.5
+
+# Initial silence grace period before VAD starts (default: 1.0)
+# VOICEMODE_INITIAL_SILENCE_GRACE_PERIOD=1.0
+
+# Audio feedback chime timing
+# Silence before chime in seconds - helps Bluetooth devices wake up (default: 0.1)
+# VOICEMODE_CHIME_LEADING_SILENCE=0.1
+
+# Silence after chime in seconds - prevents cutoff (default: 0.2)
+# VOICEMODE_CHIME_TRAILING_SILENCE=0.2
+
+#############
+# Audio Format Configuration
+#############
+
+# Global audio format: pcm, opus, mp3, wav, flac, aac (default: pcm)
+# VOICEMODE_AUDIO_FORMAT=pcm
+
+# TTS-specific format override (default: pcm for optimal streaming)
+# VOICEMODE_TTS_AUDIO_FORMAT=pcm
+
+# STT-specific format override (default: mp3 if global format is pcm, otherwise uses global format)
+# VOICEMODE_STT_AUDIO_FORMAT=mp3
+
+# Format-specific quality settings
+# VOICEMODE_OPUS_BITRATE=32000
+# VOICEMODE_MP3_BITRATE=64k
+# VOICEMODE_AAC_BITRATE=64k
+
+#############
+# Streaming Configuration
+#############
+
+# Enable streaming playback for lower latency (true/false, default: true)
+# VOICEMODE_STREAMING_ENABLED=true
+
+# Download chunk size in bytes (default: 4096)
+# VOICEMODE_STREAM_CHUNK_SIZE=4096
+
+# Initial buffer before playback starts in milliseconds (default: 150)
+# VOICEMODE_STREAM_BUFFER_MS=150
+
+# Maximum buffer size in seconds (default: 2.0)
+# VOICEMODE_STREAM_MAX_BUFFER=2.0
+
+#############
+# Event Logging
+#############
+
+# Enable comprehensive event logging (true/false, default: true)
+# VOICEMODE_EVENT_LOG_ENABLED=true
+
+# Event log directory (default: ~/.voicemode/logs/events)
+# VOICEMODE_EVENT_LOG_DIR=~/.voicemode/logs/events
+
+# Log rotation policy (currently only 'daily' supported)
+# VOICEMODE_EVENT_LOG_ROTATION=daily
+
+#############
+# Pronunciation System
+#############
+
+# Enable pronunciation middleware (true/false, default: true)
+# VOICEMODE_PRONUNCIATION_ENABLED=true
+
+# Default pronunciation rules - common technical terms
+# Format: DIRECTION pattern replacement # description
+# See docs for full format details
+VOICEMODE_PRONOUNCE="
+TTS \\bJSON\\b jason # JSON as jason
+TTS \\bYAML\\b yammel # YAML as yammel
+TTS \\bAPI\\b A P I # API as individual letters
+"
+
+# Add custom rules with VOICEMODE_PRONOUNCE_* variables
+# VOICEMODE_PRONOUNCE_CUSTOM=
+
+# Log pronunciation substitutions for debugging (true/false, default: false)
+# VOICEMODE_PRONUNCIATION_LOG_SUBSTITUTIONS=false
+
+#############
+# Think Out Loud Mode (Experimental)
+#############
+
+# Enable multi-voice thinking mode (true/false, default: false)
+# VOICEMODE_THINK_OUT_LOUD=false
+
+# Voice persona mappings for thinking roles (role:voice pairs, comma-separated)
+# VOICEMODE_THINKING_VOICES=analytical:am_adam,creative:af_sarah,critical:af_bella,synthesis:af_nova
+
+# Thinking presentation style: sequential, debate, or chorus (default: sequential)
+# VOICEMODE_THINKING_STYLE=sequential
+
+# Announce which voice is speaking (true/false, default: true)
+# VOICEMODE_THINKING_ANNOUNCE_VOICE=true
+
+#############
+# Service Management
+#############
+
+# Auto-enable services after installation (true/false, default: true)
+# VOICEMODE_SERVICE_AUTO_ENABLE=true
+
+#############
+# HTTP Serve Configuration
+#############
+
+# Host/IP address to bind the server to (default: 127.0.0.1)
+# VOICEMODE_SERVE_HOST=127.0.0.1
+
+# Port to bind the server to (default: 8765)
+# VOICEMODE_SERVE_PORT=8765
+
+# Transport protocol: streamable-http or sse (default: streamable-http)
+# VOICEMODE_SERVE_TRANSPORT=streamable-http
+
+# Security: Allow connections from local/private IP ranges (default: true)
+# VOICEMODE_SERVE_ALLOW_LOCAL=true
+
+# Security: Allow connections from Anthropic IP ranges for Claude Cowork (default: false)
+# VOICEMODE_SERVE_ALLOW_ANTHROPIC=false
+
+# Security: Allow connections from Tailscale IP range 100.64.0.0/10 (default: false)
+# VOICEMODE_SERVE_ALLOW_TAILSCALE=false
+
+# Security: Additional allowed CIDR ranges (comma-separated)
+# VOICEMODE_SERVE_ALLOWED_IPS=
+
+# Authentication: URL secret path segment (e.g., /secret-path/mcp)
+# VOICEMODE_SERVE_SECRET=
+
+# Authentication: Bearer token for Authorization header
+# VOICEMODE_SERVE_TOKEN=
+
+#############
+# Advanced Configuration
+#############
+
+# Download progress style: auto, rich, simple (default: auto)
+# VOICEMODE_PROGRESS_STYLE=auto
+
+#############
+# Credential Storage
+#############
+
+# Where to store OAuth credentials (keyring or plaintext)
+# keyring uses the OS keychain (macOS Keychain, Linux Secret Service)
+# plaintext stores in ~/.voicemode/credentials (chmod 600)
+# VOICEMODE_CREDENTIAL_STORE=keyring
+
+#############
+# API Keys (set these in your environment for security)
+#############
+
+# OpenAI API key for cloud TTS/STT
+# OPENAI_API_KEY=your-key-here
+
+#############
+# ElevenLabs Configuration
+#############
+
+# ElevenLabs API key - when set, ElevenLabs becomes the default TTS/STT provider
+# ELEVENLABS_API_KEY=your-key-here
+
+# TTS model (default: eleven_flash_v2_5 for low latency)
+# Options: eleven_flash_v2_5, eleven_v3, eleven_multilingual_v2, eleven_turbo_v2_5
+# VOICEMODE_ELEVENLABS_TTS_MODEL=eleven_flash_v2_5
+
+# Default voice ID (find voices at https://elevenlabs.io/voice-library)
+# VOICEMODE_ELEVENLABS_TTS_VOICE=JBFqnCBsd6RMkjVDRZzb
+
+# STT model (default: scribe_v2_realtime for low-latency streaming)
+# Options: scribe_v2_realtime, scribe_v2
+# VOICEMODE_ELEVENLABS_STT_MODEL=scribe_v2_realtime
+
+# Use realtime streaming STT instead of batch (true/false, default: true)
+# VOICEMODE_ELEVENLABS_REALTIME_STT=true
+
+# Voice profile tuning for ElevenLabs TTS.
+# Defaults keep Eleven v3 expressive but avoid raspy/shaky over-styling.
+# VOICEMODE_ELEVENLABS_VOICE_STABILITY=0.68
+# VOICEMODE_ELEVENLABS_VOICE_SIMILARITY_BOOST=0.82
+# VOICEMODE_ELEVENLABS_VOICE_STYLE=0.15
+# VOICEMODE_ELEVENLABS_VOICE_USE_SPEAKER_BOOST=false
+# Optional deterministic sampling hint. Reproducibility is best-effort.
+# VOICEMODE_ELEVENLABS_VOICE_SEED=
+'''
+
+    def __init__(
+        self,
+        *,
+        cwd: Path | None = None,
+        home: Path | None = None,
+    ):
+        self.cwd = cwd or Path.cwd()
+        self.home = home or Path.home()
+
+    def find_files(self) -> list[Path]:
+        """Find env files in load order: global first, then closest project file."""
+        config_files: list[Path] = []
+        global_config = self.home / ".voicemode" / "voicemode.env"
+
+        if not global_config.exists():
+            old_global = self.home / ".voicemode" / ".voicemode.env"
+            if old_global.exists():
+                global_config = old_global
+
+        if global_config.exists():
+            config_files.append(global_config)
+
+        current_dir = self.cwd
+        while current_dir != current_dir.parent:
+            standalone_file = current_dir / ".voicemode.env"
+            if standalone_file.exists():
+                config_files.append(standalone_file)
+                break
+
+            dir_file = current_dir / ".voicemode" / "voicemode.env"
+            if dir_file.exists() and dir_file != global_config:
+                config_files.append(dir_file)
+                break
+
+            current_dir = current_dir.parent
+
+        return config_files
+
+    @staticmethod
+    def parse_lines(lines: Iterable[str]) -> dict[str, str]:
+        """Parse KEY=VALUE lines from voicemode env files, including multiline quotes."""
+        parsed: dict[str, str] = {}
+        lines = list(lines)
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+
+            if not line or line.startswith("#"):
+                i += 1
+                continue
+
+            if "=" in line:
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+
+                if value and value[0] in ('"', "'"):
+                    quote_char = value[0]
+                    if len(value) > 1 and value[-1] == quote_char:
+                        value = value[1:-1]
+                    else:
+                        value_parts = [value[1:]]
+                        i += 1
+                        while i < len(lines):
+                            next_line = lines[i].rstrip("\n")
+                            if next_line.endswith(quote_char):
+                                value_parts.append(next_line[:-1])
+                                break
+                            value_parts.append(next_line)
+                            i += 1
+                        value = "\n".join(value_parts)
+
+                if key:
+                    parsed[key] = value
+
+            i += 1
+
+        return parsed
+
+    def apply_file(
+        self,
+        path: Path,
+        environ: MutableMapping[str, str],
+    ) -> dict[str, str]:
+        """Load one env file into environ without overriding existing variables."""
+        with open(path, "r") as f:
+            parsed = self.parse_lines(f.readlines())
+
+        for key, value in parsed.items():
+            if key not in environ:
+                environ[key] = value
+
+        return parsed
+
+    def load(
+        self,
+        environment: MutableMapping[str, str],
+        *,
+        create_default: bool = True,
+    ) -> list[Path]:
+        """Load configured env files into a mutable environment."""
+        config_files = self.find_files()
+
+        if not config_files and create_default:
+            default_path = self.home / ".voicemode" / "voicemode.env"
+            default_path.parent.mkdir(parents=True, exist_ok=True)
+            default_path.write_text(self.DEFAULT_CONFIG)
+            os.chmod(default_path, 0o600)
+            config_files = [default_path]
+
+        for config_path in config_files:
+            if config_path.exists():
+                self.apply_file(config_path, environment)
+
+        return config_files
+
+
+def build_provider_settings(environment: Mapping[str, str]) -> ProviderSettings:
+    """Build provider configuration from environment variables."""
+    elevenlabs_api_key = environment.get("ELEVENLABS_API_KEY", "")
+    if elevenlabs_api_key and not environment.get("VOICEMODE_TTS_BASE_URLS"):
+        tts_base_urls = ["elevenlabs://tts"]
+    else:
+        tts_base_urls = _parse_comma_list(environment, "VOICEMODE_TTS_BASE_URLS", "elevenlabs://tts")
+
+    if elevenlabs_api_key and not environment.get("VOICEMODE_STT_BASE_URLS"):
+        stt_base_urls = ["elevenlabs://stt"]
+    else:
+        stt_base_urls = _parse_comma_list(environment, "VOICEMODE_STT_BASE_URLS", "elevenlabs://stt")
+
+    tts_speed = float(environment["VOICEMODE_TTS_SPEED"]) if environment.get("VOICEMODE_TTS_SPEED") else None
+
+    return ProviderSettings(
+        openai_api_key=environment.get("OPENAI_API_KEY"),
+        elevenlabs_api_key=elevenlabs_api_key,
+        elevenlabs_tts_model=environment.get("VOICEMODE_ELEVENLABS_TTS_MODEL", "eleven_v3"),
+        elevenlabs_tts_voice=environment.get("VOICEMODE_ELEVENLABS_TTS_VOICE", "k4hP4cQadSZQc0Oar2Ld"),
+        elevenlabs_stt_model=environment.get("VOICEMODE_ELEVENLABS_STT_MODEL", "scribe_v2_realtime"),
+        elevenlabs_use_realtime_stt=_env_bool(environment, "VOICEMODE_ELEVENLABS_REALTIME_STT", True),
+        elevenlabs_voice_stability=_env_float(environment, "VOICEMODE_ELEVENLABS_VOICE_STABILITY", 0.68),
+        elevenlabs_voice_similarity_boost=_env_float(environment, "VOICEMODE_ELEVENLABS_VOICE_SIMILARITY_BOOST", 0.82),
+        elevenlabs_voice_style=_env_float(environment, "VOICEMODE_ELEVENLABS_VOICE_STYLE", 0.15),
+        elevenlabs_voice_use_speaker_boost=_env_bool(environment, "VOICEMODE_ELEVENLABS_VOICE_USE_SPEAKER_BOOST", False),
+        elevenlabs_voice_seed=_env_optional_int(environment, "VOICEMODE_ELEVENLABS_VOICE_SEED"),
+        tts_speed=tts_speed,
+        tts_base_urls=tuple(tts_base_urls),
+        stt_base_urls=tuple(stt_base_urls),
+        tts_voices=tuple(_parse_comma_list(environment, "VOICEMODE_VOICES", "k4hP4cQadSZQc0Oar2Ld")),
+        tts_models=tuple(_parse_comma_list(environment, "VOICEMODE_TTS_MODELS", "eleven_v3")),
+        stt_language=environment.get("VOICEMODE_STT_LANGUAGE") or environment.get("VOICEMODE_WHISPER_LANGUAGE", "auto"),
+    )
+
+
+def _build_settings_from_environment(environment: Mapping[str, str]) -> RuntimeSettings:
+    base_dir = _expand_path(environment.get("VOICEMODE_BASE_DIR", str(Path.home() / ".voicemode")))
+    audio_dir = base_dir / "audio"
+    transcriptions_dir = base_dir / "transcriptions"
+    logs_dir = base_dir / "logs"
+    models_dir = _expand_path(environment.get("VOICEMODE_MODELS_DIR", str(base_dir / "models")))
+
+    debug_value = environment.get("VOICEMODE_DEBUG", "").lower()
+    debug = debug_value in _TRUE_VALUES
+    trace_debug = debug_value == "trace"
+    vad_debug = _env_bool(environment, "VOICEMODE_VAD_DEBUG")
+    save_all = _env_bool(environment, "VOICEMODE_SAVE_ALL")
+    save_audio = save_all or debug or _env_bool(environment, "VOICEMODE_SAVE_AUDIO")
+    save_transcriptions = save_all or debug or _env_bool(environment, "VOICEMODE_SAVE_TRANSCRIPTIONS")
+    metrics_level = environment.get("VOICEMODE_METRICS_LEVEL", "summary").lower()
+    if metrics_level not in _VALID_METRICS_LEVELS:
+        metrics_level = "summary"
+
+    providers = build_provider_settings(environment)
+    event_log_enabled = save_all or _env_bool(environment, "VOICEMODE_EVENT_LOG_ENABLED", True)
+
+    audio = AudioSettings(
+        sample_rate=24000,
+        channels=1,
+        save_all=save_all,
+        save_audio=save_audio,
+        save_transcriptions=save_transcriptions,
+        audio_feedback_enabled=_env_bool(environment, "VOICEMODE_AUDIO_FEEDBACK", True),
+        skip_tts=_env_bool(environment, "VOICEMODE_SKIP_TTS"),
+    )
+    logging = LoggingSettings(
+        debug=debug,
+        trace_debug=trace_debug,
+        vad_debug=vad_debug,
+        logs_dir=logs_dir,
+        debug_dir=logs_dir / "debug",
+        metrics_level=metrics_level,
+        event_log_enabled=event_log_enabled,
+        event_log_dir=environment.get("VOICEMODE_EVENT_LOG_DIR", str(logs_dir / "events")),
+        event_log_rotation=environment.get("VOICEMODE_EVENT_LOG_ROTATION", "daily"),
+    )
+    server = ServerSettings(
+        serve_host=environment.get("VOICEMODE_SERVE_HOST", "127.0.0.1"),
+        serve_port=int(environment.get("VOICEMODE_SERVE_PORT", "8765")),
+        serve_transport=environment.get("VOICEMODE_SERVE_TRANSPORT", "streamable-http"),
+    )
+
+    return RuntimeSettings(
+        base_dir=base_dir,
+        audio_dir=audio_dir,
+        transcriptions_dir=transcriptions_dir,
+        logs_dir=logs_dir,
+        models_dir=models_dir,
+        debug=logging.debug,
+        trace_debug=logging.trace_debug,
+        vad_debug=logging.vad_debug,
+        debug_dir=logging.debug_dir,
+        save_all=audio.save_all,
+        save_audio=audio.save_audio,
+        save_transcriptions=audio.save_transcriptions,
+        audio_feedback_enabled=audio.audio_feedback_enabled,
+        skip_tts=audio.skip_tts,
+        metrics_level=logging.metrics_level,
+        sample_rate=audio.sample_rate,
+        channels=audio.channels,
+        tts_speed=providers.tts_speed,
+        tts_base_urls=providers.tts_base_urls,
+        stt_base_urls=providers.stt_base_urls,
+        tts_voices=providers.tts_voices,
+        tts_models=providers.tts_models,
+        openai_api_key=providers.openai_api_key,
+        elevenlabs_api_key=providers.elevenlabs_api_key,
+        elevenlabs_tts_model=providers.elevenlabs_tts_model,
+        elevenlabs_tts_voice=providers.elevenlabs_tts_voice,
+        elevenlabs_stt_model=providers.elevenlabs_stt_model,
+        elevenlabs_use_realtime_stt=providers.elevenlabs_use_realtime_stt,
+        elevenlabs_voice_stability=providers.elevenlabs_voice_stability,
+        elevenlabs_voice_similarity_boost=providers.elevenlabs_voice_similarity_boost,
+        elevenlabs_voice_style=providers.elevenlabs_voice_style,
+        elevenlabs_voice_use_speaker_boost=providers.elevenlabs_voice_use_speaker_boost,
+        elevenlabs_voice_seed=providers.elevenlabs_voice_seed,
+        stt_language=providers.stt_language,
+        conch_enabled=_env_bool(environment, "VOICEMODE_CONCH_ENABLED", True),
+        conch_timeout=float(environment.get("VOICEMODE_CONCH_TIMEOUT", "60")),
+        conch_check_interval=float(environment.get("VOICEMODE_CONCH_CHECK_INTERVAL", "0.5")),
+        event_log_enabled=logging.event_log_enabled,
+        event_log_dir=logging.event_log_dir,
+        event_log_rotation=logging.event_log_rotation,
+        serve_host=server.serve_host,
+        serve_port=server.serve_port,
+        serve_transport=server.serve_transport,
+        audio=audio,
+        providers=providers,
+        logging=logging,
+        server=server,
+    )
+
+
+def _snapshot_from_settings(settings: RuntimeSettings) -> SimpleNamespace:
+    return SimpleNamespace(
+        FFMPEG_AVAILABLE=True,
+        _startup_initialized=False,
+        audio_operation_lock=None,
+        service_processes={},
+        BASE_DIR=settings.base_dir,
+        AUDIO_DIR=settings.audio_dir,
+        TRANSCRIPTIONS_DIR=settings.transcriptions_dir,
+        LOGS_DIR=settings.logs_dir,
+        MODELS_DIR=settings.models_dir,
+        DEBUG=settings.debug,
+        TRACE_DEBUG=settings.trace_debug,
+        VAD_DEBUG=settings.vad_debug,
+        DEBUG_DIR=settings.debug_dir,
+        SAVE_ALL=settings.save_all,
+        SAVE_AUDIO=settings.save_audio,
+        SAVE_TRANSCRIPTIONS=settings.save_transcriptions,
+        AUDIO_FEEDBACK_ENABLED=settings.audio_feedback_enabled,
+        SKIP_TTS=settings.skip_tts,
+        METRICS_LEVEL=settings.metrics_level,
+        SAMPLE_RATE=settings.sample_rate,
+        CHANNELS=settings.channels,
+        TTS_SPEED=settings.tts_speed,
+        TTS_BASE_URLS=list(settings.tts_base_urls),
+        STT_BASE_URLS=list(settings.stt_base_urls),
+        TTS_VOICES=list(settings.tts_voices),
+        TTS_MODELS=list(settings.tts_models),
+        OPENAI_API_KEY=settings.openai_api_key,
+        ELEVENLABS_API_KEY=settings.elevenlabs_api_key,
+        ELEVENLABS_TTS_MODEL=settings.elevenlabs_tts_model,
+        ELEVENLABS_TTS_VOICE=settings.elevenlabs_tts_voice,
+        ELEVENLABS_STT_MODEL=settings.elevenlabs_stt_model,
+        ELEVENLABS_USE_REALTIME_STT=settings.elevenlabs_use_realtime_stt,
+        ELEVENLABS_VOICE_STABILITY=settings.elevenlabs_voice_stability,
+        ELEVENLABS_VOICE_SIMILARITY_BOOST=settings.elevenlabs_voice_similarity_boost,
+        ELEVENLABS_VOICE_STYLE=settings.elevenlabs_voice_style,
+        ELEVENLABS_VOICE_USE_SPEAKER_BOOST=settings.elevenlabs_voice_use_speaker_boost,
+        ELEVENLABS_VOICE_SEED=settings.elevenlabs_voice_seed,
+        STT_LANGUAGE=settings.stt_language,
+        CONCH_ENABLED=settings.conch_enabled,
+        CONCH_TIMEOUT=settings.conch_timeout,
+        CONCH_CHECK_INTERVAL=settings.conch_check_interval,
+        EVENT_LOG_ENABLED=settings.event_log_enabled,
+        EVENT_LOG_DIR=settings.event_log_dir,
+        EVENT_LOG_ROTATION=settings.event_log_rotation,
+        SERVE_HOST=settings.serve_host,
+        SERVE_PORT=settings.serve_port,
+        SERVE_TRANSPORT=settings.serve_transport,
+    )
+
+
+class RuntimeState:
+    """Mutable runtime state hidden behind a small interface."""
+
+    def __init__(self, config_module):
+        self._config = config_module
+
+    @property
+    def ffmpeg_available(self) -> bool:
+        return self._config.FFMPEG_AVAILABLE
+
+    @ffmpeg_available.setter
+    def ffmpeg_available(self, value: bool) -> None:
+        self._config.FFMPEG_AVAILABLE = value
+
+    @property
+    def startup_initialized(self) -> bool:
+        return self._config._startup_initialized
+
+    @startup_initialized.setter
+    def startup_initialized(self, value: bool) -> None:
+        self._config._startup_initialized = value
+
+    @property
+    def audio_operation_lock(self) -> Any:
+        return self._config.audio_operation_lock
+
+    @property
+    def service_processes(self) -> dict[str, Any]:
+        return self._config.service_processes
+
+
+class RuntimeContext:
+    """Composition root for env-derived settings and runtime state."""
+
+    def __init__(
+        self,
+        config_module,
+        settings: RuntimeSettings | None = None,
+        environment: Mapping[str, str] | None = None,
+        env_loader: EnvFileLoader | None = None,
+    ):
+        self._config = config_module
+        self._settings = settings
+        self._environment_override = environment
+        self._env_loader = env_loader or EnvFileLoader()
+        self._state = RuntimeState(config_module)
+
+    @classmethod
+    def load(
+        cls,
+        *,
+        reload: bool = False,
+        environment: Mapping[str, str] | None = None,
+        env_loader: EnvFileLoader | None = None,
+    ) -> "RuntimeContext":
+        if environment is not None:
+            settings = _build_settings_from_environment(environment)
+            return cls(
+                _snapshot_from_settings(settings),
+                settings=settings,
+                environment=environment,
+                env_loader=env_loader,
+            )
+
+        from . import config
+
+        if reload:
+            config.reload_configuration()
+        return cls(config, env_loader=env_loader)
+
+    def settings(self) -> RuntimeSettings:
+        if self._settings is None:
+            self._settings = _settings_from_config(self._config)
+        return self._settings
+
+    def provider_settings(self) -> ProviderSettings:
+        """Return parsed provider configuration for narrow config consumers."""
+        return self.settings().providers
+
+    def provider_base_urls(self, service: str) -> tuple[str, ...]:
+        """Return configured base URLs for a provider service."""
+        providers = self.provider_settings()
+        if service == "tts":
+            return providers.tts_base_urls
+        if service == "stt":
+            return providers.stt_base_urls
+        raise ValueError(f"Unsupported provider service: {service}")
+
+    def env_files(self) -> list[Path]:
+        """Return env files selected by this runtime context."""
+        return self._env_loader.find_files()
+
+    def parse_env_file_lines(self, lines: Iterable[str]) -> dict[str, str]:
+        """Parse VoiceMode env file lines without mutating process globals."""
+        return self._env_loader.parse_lines(lines)
+
+    def apply_env_file(
+        self,
+        path: Path,
+        environ: MutableMapping[str, str] | None = None,
+    ) -> dict[str, str]:
+        """Apply an env file through this runtime context."""
+        target_environ = os.environ if environ is None else environ
+        return self._env_loader.apply_file(path, target_environ)
+
+    def load_env_files(
+        self,
+        environment: MutableMapping[str, str] | None = None,
+        *,
+        create_default: bool = True,
+    ) -> list[Path]:
+        """Load env files through this runtime context."""
+        target_environ = os.environ if environment is None else environment
+        loaded_files = self._env_loader.load(target_environ, create_default=create_default)
+        if self._environment_override is not None and target_environ is self._environment_override:
+            self._settings = _build_settings_from_environment(target_environ)
+        return loaded_files
+
+    def state(self) -> RuntimeState:
+        return self._state
+
+    def select_tools(self, available_tools: set[str] | frozenset[str]) -> ToolSelection:
+        environment = self._environment()
+        all_tools = set(available_tools)
+        enabled_tools = environment.get("VOICEMODE_TOOLS_ENABLED", "").strip()
+        disabled_tools = environment.get("VOICEMODE_TOOLS_DISABLED", "").strip()
+        legacy_tools = environment.get("VOICEMODE_TOOLS", "").strip()
+
+        if enabled_tools:
+            requested = _parse_tool_list(enabled_tools)
+            tools_to_load = requested & all_tools
+            invalid = requested - all_tools
+            return ToolSelection(
+                tools_to_load=tools_to_load,
+                mode=f"whitelist mode ({len(tools_to_load)} tools)",
+                invalid=invalid,
+                excluded=set(),
+                nonexistent=set(),
+            )
+
+        if disabled_tools:
+            excluded = _parse_tool_list(disabled_tools)
+            tools_to_load = all_tools - excluded
+            nonexistent = excluded - all_tools
+            return ToolSelection(
+                tools_to_load=tools_to_load,
+                mode=f"blacklist mode (excluding {len(excluded & all_tools)} tools)",
+                invalid=set(),
+                excluded=excluded,
+                nonexistent=nonexistent,
+            )
+
+        if legacy_tools:
+            requested = _parse_tool_list(legacy_tools)
+            tools_to_load = requested & all_tools
+            invalid = requested - all_tools
+            return ToolSelection(
+                tools_to_load=tools_to_load,
+                mode=f"legacy mode ({len(tools_to_load)} tools)",
+                invalid=invalid,
+                excluded=set(),
+                nonexistent=set(),
+                legacy_requested=True,
+            )
+
+        tools_to_load = _DEFAULT_TOOLS & all_tools
+        return ToolSelection(
+            tools_to_load=tools_to_load,
+            mode=f"default mode ({len(tools_to_load)} tools)",
+            invalid=set(),
+            excluded=set(),
+            nonexistent=set(),
+        )
+
+    def auth(self, auto_refresh: bool = True) -> SessionAuth:
+        from .auth import get_valid_credentials
+
+        credentials = get_valid_credentials(auto_refresh=auto_refresh)
+        user_info: Optional[Mapping[str, Any]] = None
+        if credentials is not None:
+            user_info = {
+                "access_token": getattr(credentials, "access_token", None),
+                "refresh_token": getattr(credentials, "refresh_token", None),
+            }
+        return SessionAuth(credentials=credentials, user_info=user_info)
+
+    def _environment(self) -> Mapping[str, str]:
+        if self._environment_override is not None:
+            return self._environment_override
+        return os.environ
+
+
+def _settings_from_config(c: Any) -> RuntimeSettings:
+    audio = AudioSettings(
+        sample_rate=c.SAMPLE_RATE,
+        channels=c.CHANNELS,
+        save_all=c.SAVE_ALL,
+        save_audio=c.SAVE_AUDIO,
+        save_transcriptions=c.SAVE_TRANSCRIPTIONS,
+        audio_feedback_enabled=c.AUDIO_FEEDBACK_ENABLED,
+        skip_tts=c.SKIP_TTS,
+    )
+    providers = ProviderSettings(
+        openai_api_key=c.OPENAI_API_KEY,
+        elevenlabs_api_key=c.ELEVENLABS_API_KEY,
+        elevenlabs_tts_model=c.ELEVENLABS_TTS_MODEL,
+        elevenlabs_tts_voice=c.ELEVENLABS_TTS_VOICE,
+        elevenlabs_stt_model=c.ELEVENLABS_STT_MODEL,
+        elevenlabs_use_realtime_stt=c.ELEVENLABS_USE_REALTIME_STT,
+        elevenlabs_voice_stability=getattr(c, "ELEVENLABS_VOICE_STABILITY", 0.68),
+        elevenlabs_voice_similarity_boost=getattr(c, "ELEVENLABS_VOICE_SIMILARITY_BOOST", 0.82),
+        elevenlabs_voice_style=getattr(c, "ELEVENLABS_VOICE_STYLE", 0.15),
+        elevenlabs_voice_use_speaker_boost=getattr(c, "ELEVENLABS_VOICE_USE_SPEAKER_BOOST", False),
+        elevenlabs_voice_seed=getattr(c, "ELEVENLABS_VOICE_SEED", None),
+        tts_speed=c.TTS_SPEED,
+        tts_base_urls=tuple(c.TTS_BASE_URLS),
+        stt_base_urls=tuple(c.STT_BASE_URLS),
+        tts_voices=tuple(c.TTS_VOICES),
+        tts_models=tuple(c.TTS_MODELS),
+        stt_language=c.STT_LANGUAGE,
+    )
+    logging = LoggingSettings(
+        debug=c.DEBUG,
+        trace_debug=c.TRACE_DEBUG,
+        vad_debug=c.VAD_DEBUG,
+        logs_dir=c.LOGS_DIR,
+        debug_dir=c.DEBUG_DIR,
+        metrics_level=c.METRICS_LEVEL,
+        event_log_enabled=c.EVENT_LOG_ENABLED,
+        event_log_dir=c.EVENT_LOG_DIR,
+        event_log_rotation=c.EVENT_LOG_ROTATION,
+    )
+    server = ServerSettings(
+        serve_host=c.SERVE_HOST,
+        serve_port=c.SERVE_PORT,
+        serve_transport=c.SERVE_TRANSPORT,
+    )
+
+    return RuntimeSettings(
+        base_dir=c.BASE_DIR,
+        audio_dir=c.AUDIO_DIR,
+        transcriptions_dir=c.TRANSCRIPTIONS_DIR,
+        logs_dir=c.LOGS_DIR,
+        models_dir=c.MODELS_DIR,
+        debug=logging.debug,
+        trace_debug=logging.trace_debug,
+        vad_debug=logging.vad_debug,
+        debug_dir=logging.debug_dir,
+        save_all=audio.save_all,
+        save_audio=audio.save_audio,
+        save_transcriptions=audio.save_transcriptions,
+        audio_feedback_enabled=audio.audio_feedback_enabled,
+        skip_tts=audio.skip_tts,
+        metrics_level=logging.metrics_level,
+        sample_rate=audio.sample_rate,
+        channels=audio.channels,
+        tts_speed=providers.tts_speed,
+        tts_base_urls=providers.tts_base_urls,
+        stt_base_urls=providers.stt_base_urls,
+        tts_voices=providers.tts_voices,
+        tts_models=providers.tts_models,
+        openai_api_key=providers.openai_api_key,
+        elevenlabs_api_key=providers.elevenlabs_api_key,
+        elevenlabs_tts_model=providers.elevenlabs_tts_model,
+        elevenlabs_tts_voice=providers.elevenlabs_tts_voice,
+        elevenlabs_stt_model=providers.elevenlabs_stt_model,
+        elevenlabs_use_realtime_stt=providers.elevenlabs_use_realtime_stt,
+        elevenlabs_voice_stability=providers.elevenlabs_voice_stability,
+        elevenlabs_voice_similarity_boost=providers.elevenlabs_voice_similarity_boost,
+        elevenlabs_voice_style=providers.elevenlabs_voice_style,
+        elevenlabs_voice_use_speaker_boost=providers.elevenlabs_voice_use_speaker_boost,
+        elevenlabs_voice_seed=providers.elevenlabs_voice_seed,
+        stt_language=providers.stt_language,
+        conch_enabled=c.CONCH_ENABLED,
+        conch_timeout=c.CONCH_TIMEOUT,
+        conch_check_interval=c.CONCH_CHECK_INTERVAL,
+        event_log_enabled=logging.event_log_enabled,
+        event_log_dir=logging.event_log_dir,
+        event_log_rotation=logging.event_log_rotation,
+        serve_host=server.serve_host,
+        serve_port=server.serve_port,
+        serve_transport=server.serve_transport,
+        audio=audio,
+        providers=providers,
+        logging=logging,
+        server=server,
+    )
+
+
+def _parse_tool_list(tool_string: str) -> set[str]:
+    if not tool_string:
+        return set()
+    return {tool.strip() for tool in tool_string.split(",") if tool.strip()}
+
+
+def get_runtime_context(*, reload: bool = False) -> RuntimeContext:
+    return RuntimeContext.load(reload=reload)

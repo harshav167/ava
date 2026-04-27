@@ -35,7 +35,7 @@ Usage:
 import ipaddress
 import logging
 import time
-from typing import Callable, List, Optional, Union
+from typing import List, Optional
 
 from starlette.requests import Request
 from starlette.responses import Response
@@ -71,22 +71,33 @@ LOCAL_CIDRS: List[str] = [
 ]
 
 
-def get_client_ip(request: Request) -> str:
+def get_client_ip(
+    request: Request,
+    trusted_proxy_cidrs: Optional[List[str]] = None,
+) -> str:
     """Extract the real client IP address from a request.
 
-    Handles X-Forwarded-For header for proxied requests (e.g., behind
-    Tailscale Funnel or other reverse proxies). Takes the first IP in
-    the chain, which is the original client IP.
+    X-Forwarded-For is only trusted when the direct client IP is in a trusted
+    proxy range. Otherwise the direct client address is returned to avoid
+    spoofing by arbitrary clients.
 
     Args:
         request: The Starlette request object.
+        trusted_proxy_cidrs: Optional CIDR ranges that are allowed to supply
+            X-Forwarded-For. If omitted, forwarded headers are ignored.
 
     Returns:
         The client IP address as a string.
     """
+    direct_ip = request.client.host if request.client else "0.0.0.0"
+
     # Check X-Forwarded-For header first (for proxied requests)
     forwarded_for = request.headers.get("X-Forwarded-For")
-    if forwarded_for:
+    if (
+        forwarded_for
+        and trusted_proxy_cidrs
+        and ip_in_cidrs(direct_ip, trusted_proxy_cidrs)
+    ):
         # X-Forwarded-For can contain multiple IPs: "client, proxy1, proxy2"
         # The first IP is the original client
         client_ip = forwarded_for.split(",")[0].strip()
@@ -94,10 +105,21 @@ def get_client_ip(request: Request) -> str:
 
     # Fall back to direct client IP
     if request.client:
-        return request.client.host
+        return direct_ip
 
     # Last resort fallback
     return "0.0.0.0"
+
+
+def redact_request_path(path: str) -> str:
+    """Redact secret-bearing MCP endpoint paths before logging."""
+    for base_path in ("/mcp", "/sse"):
+        prefix = f"{base_path}/"
+        if path.startswith(prefix):
+            remainder = path[len(prefix):]
+            if remainder and "/" not in remainder:
+                return f"{base_path}/<redacted>"
+    return path
 
 
 def ip_in_cidrs(
@@ -140,13 +162,20 @@ class AccessLogMiddleware:
         app: The wrapped ASGI application.
     """
 
-    def __init__(self, app: ASGIApp) -> None:
+    def __init__(
+        self,
+        app: ASGIApp,
+        trusted_proxy_cidrs: Optional[List[str]] = None,
+    ) -> None:
         """Initialize the access log middleware.
 
         Args:
             app: The ASGI application to wrap.
+            trusted_proxy_cidrs: Optional CIDR ranges trusted to set
+                X-Forwarded-For.
         """
         self.app = app
+        self.trusted_proxy_cidrs = trusted_proxy_cidrs or []
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -165,14 +194,14 @@ class AccessLogMiddleware:
         # Extract request info
         request = Request(scope, receive, send)
         method = request.method
-        path = request.url.path
+        path = redact_request_path(request.url.path)
         query = request.url.query
         full_path = f"{path}?{query}" if query else path
 
         # Get IPs
         direct_ip = request.client.host if request.client else "unknown"
         forwarded_for = request.headers.get("X-Forwarded-For", "-")
-        real_ip = get_client_ip(request)
+        real_ip = get_client_ip(request, self.trusted_proxy_cidrs)
 
         # Capture response status
         status_code = 0
@@ -219,15 +248,19 @@ class IPAllowlistMiddleware:
         self,
         app: ASGIApp,
         allowed_cidrs: List[str],
+        trusted_proxy_cidrs: Optional[List[str]] = None,
     ) -> None:
         """Initialize the IP allowlist middleware.
 
         Args:
             app: The ASGI application to wrap.
             allowed_cidrs: List of allowed CIDR notation strings.
+            trusted_proxy_cidrs: Optional CIDR ranges trusted to supply
+                X-Forwarded-For headers.
         """
         self.app = app
         self.allowed_cidrs = allowed_cidrs
+        self.trusted_proxy_cidrs = trusted_proxy_cidrs or []
 
     async def __call__(
         self, scope: Scope, receive: Receive, send: Send
@@ -246,7 +279,7 @@ class IPAllowlistMiddleware:
 
         # Build a Request object to use get_client_ip helper
         request = Request(scope, receive, send)
-        client_ip = get_client_ip(request)
+        client_ip = get_client_ip(request, self.trusted_proxy_cidrs)
 
         if not ip_in_cidrs(client_ip, self.allowed_cidrs):
             # Return 403 Forbidden

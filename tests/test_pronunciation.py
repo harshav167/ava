@@ -1,7 +1,6 @@
 """Tests for pronunciation rules parsing."""
 
 import os
-import pytest
 from voice_mode.pronounce import parse_compact_rules, PronounceManager
 
 

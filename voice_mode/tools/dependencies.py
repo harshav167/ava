@@ -119,7 +119,7 @@ async def check_audio_dependencies() -> Dict[str, Any]:
         
         # Format as readable text
         output = [
-            f"=== Audio Dependency Check ===",
+            "=== Audio Dependency Check ===",
             f"Platform: {result['platform']} ({result.get('environment', 'Native')})",
             ""
         ]
@@ -132,7 +132,7 @@ async def check_audio_dependencies() -> Dict[str, Any]:
             output.append("")
             
             if result.get("missing_packages"):
-                output.append(f"Install missing packages:")
+                output.append("Install missing packages:")
                 output.append(f"  {result['install_command']}")
                 output.append("")
             
@@ -143,10 +143,10 @@ async def check_audio_dependencies() -> Dict[str, Any]:
         
         audio = result.get("python_audio", {})
         if audio.get("sounddevice_installed"):
-            output.append(f"Python Audio: ✓ sounddevice installed")
+            output.append("Python Audio: ✓ sounddevice installed")
             output.append(f"  Devices: {audio.get('total_devices', 0)} total, {audio.get('input_devices', 0)} input")
         else:
-            output.append(f"Python Audio: ✗ sounddevice not working")
+            output.append("Python Audio: ✗ sounddevice not working")
             output.append(f"  Error: {audio.get('error', 'Unknown')}")
         output.append("")
         

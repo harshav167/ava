@@ -6,9 +6,50 @@ removed agents, changed targets) and re-announces to the gateway.
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 logger = logging.getLogger("voicemode")
+
+
+@dataclass(frozen=True)
+class UserChangeEvent:
+    """A filesystem/user-state change emitted by the Connect watcher."""
+
+    change_type: str
+    username: str
+    detail: Optional[str] = None
+
+
+def user_state_events(prev: dict, curr: dict) -> list[UserChangeEvent]:
+    """Return typed change events between two user snapshots."""
+    return [
+        UserChangeEvent(change_type=change_type, username=name, detail=detail)
+        for change_type, name, detail in diff_user_state(prev, curr)
+    ]
+
+
+def format_user_change_event(event: UserChangeEvent) -> Optional[str]:
+    """Format a watcher event for CLI/log output."""
+    if event.change_type == "added":
+        return f"  + User added: {event.username}"
+    if event.change_type == "removed":
+        return f"  - User removed: {event.username}"
+    if event.change_type == "subscribed":
+        return f"  ^ {event.username} now available (subscribed)"
+    if event.change_type == "unsubscribed":
+        return f"  v {event.username} no longer available (unsubscribed)"
+    if event.change_type == "changed":
+        return f"  ~ {event.username} changed"
+    return None
+
+
+async def announce_user_change_events(client, event_count: int, user_count: int) -> bool:
+    """Apply watcher events to the gateway through the network adapter."""
+    if event_count == 0 or not client.is_connected:
+        return False
+    await client.send_capabilities_update()
+    return True
 
 
 async def watch_user_changes(
@@ -44,23 +85,14 @@ async def watch_user_changes(
             curr_state = user_manager.snapshot()
 
             if curr_state != prev_state:
-                changes = diff_user_state(prev_state, curr_state)
+                events = user_state_events(prev_state, curr_state)
 
-                for change_type, name, detail in changes:
-                    if change_type == "added":
-                        _log(f"  + User added: {name}")
-                    elif change_type == "removed":
-                        _log(f"  - User removed: {name}")
-                    elif change_type == "subscribed":
-                        _log(f"  ^ {name} now available (subscribed)")
-                    elif change_type == "unsubscribed":
-                        _log(f"  v {name} no longer available (unsubscribed)")
-                    elif change_type == "changed":
-                        _log(f"  ~ {name} changed")
+                for event in events:
+                    message = format_user_change_event(event)
+                    if message:
+                        _log(message)
 
-                # Re-announce to gateway
-                if client.is_connected:
-                    await client.send_capabilities_update()
+                if await announce_user_change_events(client, len(events), len(curr_state)):
                     _log(f"  -> Announced {len(curr_state)} user(s) to gateway")
 
                 prev_state = curr_state

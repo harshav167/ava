@@ -9,7 +9,6 @@ Tests for:
 """
 
 import os
-import pytest
 from unittest.mock import patch, MagicMock
 from click.testing import CliRunner
 
@@ -84,7 +83,7 @@ class TestServeTransportOption:
 
         # Patch at the import location in voice_mode.cli
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 result = runner.invoke(
                     voice_mode_main_cli,
                     ['serve', '--transport', 'streamable-http']
@@ -94,6 +93,11 @@ class TestServeTransportOption:
                 assert '/mcp' in result.output
                 # Check it says Transport: streamable-http
                 assert 'streamable-http' in result.output
+                mock_mcp.http_app.assert_called_once_with(
+                    transport='streamable-http',
+                    path='/mcp',
+                    stateless_http=True,
+                )
 
     def test_transport_option_sse(self):
         """Test that --transport sse uses /sse path."""
@@ -106,7 +110,7 @@ class TestServeTransportOption:
         mock_mcp.http_app.return_value = mock_app
 
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 result = runner.invoke(
                     voice_mode_main_cli,
                     ['serve', '--transport', 'sse']
@@ -114,6 +118,11 @@ class TestServeTransportOption:
 
                 # Check output contains /sse path
                 assert '/sse' in result.output
+                mock_mcp.http_app.assert_called_once_with(
+                    transport='sse',
+                    path='/sse',
+                    stateless_http=False,
+                )
 
     def test_sse_transport_shows_deprecation_warning(self):
         """Test that using SSE transport shows deprecation warning."""
@@ -126,7 +135,7 @@ class TestServeTransportOption:
         mock_mcp.http_app.return_value = mock_app
 
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 result = runner.invoke(
                     voice_mode_main_cli,
                     ['serve', '--transport', 'sse']
@@ -147,7 +156,7 @@ class TestServeTransportOption:
         mock_mcp.http_app.return_value = mock_app
 
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 result = runner.invoke(
                     voice_mode_main_cli,
                     ['serve', '--transport', 'streamable-http']
@@ -173,7 +182,7 @@ class TestServeTransportOption:
             mock_mcp.http_app.return_value = mock_app
 
             with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-                with patch('uvicorn.run') as mock_uvicorn:
+                with patch('uvicorn.run'):
                     result = runner.invoke(
                         voice_mode_main_cli,
                         ['serve', '--transport', 'sse']
@@ -198,7 +207,7 @@ class TestServeTransportOption:
         mock_mcp.http_app.return_value = mock_app
 
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 result = runner.invoke(
                     voice_mode_main_cli,
                     ['serve', '-t', 'sse']
@@ -233,7 +242,7 @@ class TestServeTransportOption:
         mock_mcp.http_app.return_value = mock_app
 
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 # Test streamable-http shows /mcp
                 result = runner.invoke(
                     voice_mode_main_cli,
@@ -242,7 +251,7 @@ class TestServeTransportOption:
                 assert '/mcp' in result.output
 
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 # Test sse shows /sse
                 result = runner.invoke(
                     voice_mode_main_cli,
@@ -265,14 +274,15 @@ class TestServeTransportWithSecret:
         mock_mcp.http_app.return_value = mock_app
 
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 result = runner.invoke(
                     voice_mode_main_cli,
                     ['serve', '--transport', 'streamable-http', '--secret', 'mysecret']
                 )
 
-                # Output should show /mcp/mysecret
-                assert '/mcp/mysecret' in result.output
+                assert 'URL secret: myse...' in result.output
+                assert 'Endpoint: http://127.0.0.1:8765/mcp/<redacted>' in result.output
+                assert '/mcp/mysecret' not in result.output
 
     def test_sse_with_secret(self):
         """Test that sse with secret uses /sse/secret path."""
@@ -285,11 +295,12 @@ class TestServeTransportWithSecret:
         mock_mcp.http_app.return_value = mock_app
 
         with patch.dict('sys.modules', {'voice_mode.server': MagicMock(mcp=mock_mcp)}):
-            with patch('uvicorn.run') as mock_uvicorn:
+            with patch('uvicorn.run'):
                 result = runner.invoke(
                     voice_mode_main_cli,
                     ['serve', '--transport', 'sse', '--secret', 'mysecret']
                 )
 
-                # Output should show /sse/mysecret
-                assert '/sse/mysecret' in result.output
+                assert 'URL secret: myse...' in result.output
+                assert 'Endpoint: http://127.0.0.1:8765/sse/<redacted>' in result.output
+                assert '/sse/mysecret' not in result.output

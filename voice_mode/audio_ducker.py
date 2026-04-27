@@ -15,8 +15,16 @@ from __future__ import annotations
 import logging
 import subprocess
 from contextlib import contextmanager
+from contextvars import ContextVar
 
 logger = logging.getLogger("voicemode")
+
+_DUCKING_DEPTH: ContextVar[int] = ContextVar("voicemode_ducking_depth", default=0)
+
+
+def is_ducking_active() -> bool:
+    """Return True when this execution context already owns audio ducking."""
+    return _DUCKING_DEPTH.get() > 0
 
 # ---------------------------------------------------------------------------
 # Detect what's playing
@@ -107,37 +115,43 @@ def DJDucker():
 
     Designed as a drop-in replacement for the old mpv-IPC-based DJDucker.
     """
-    # Check known scriptable apps
-    spotify_was_playing = _is_app_playing("Spotify")
-    music_was_playing = _is_app_playing("Music")
-
-    # Also check if ANY Now Playing source is active (covers browser audio, etc.)
-    now_playing_active = False
+    token = _DUCKING_DEPTH.set(_DUCKING_DEPTH.get() + 1)
     try:
-        r = subprocess.run(
-            ["osascript", "-e",
-             'tell application "System Events" to get (name of processes whose background only is false) as string'],
-            capture_output=True, text=True, timeout=2,
-        )
-        # If we detected known players, that's enough
-        now_playing_active = spotify_was_playing or music_was_playing
-    except Exception:
-        pass
+        if _DUCKING_DEPTH.get() > 1:
+            yield
+            return
 
-    should_duck = spotify_was_playing or music_was_playing
+        # Check known scriptable apps
+        spotify_was_playing = _is_app_playing("Spotify")
+        music_was_playing = _is_app_playing("Music")
 
-    if should_duck:
-        playing = []
-        if spotify_was_playing:
-            playing.append("Spotify")
-        if music_was_playing:
-            playing.append("Music")
-        logger.info(f"Ducking audio — pausing {', '.join(playing)}")
-        _simulate_media_play_pause()
+        # Also check if ANY Now Playing source is active (covers browser audio, etc.)
+        try:
+            subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to get (name of processes whose background only is false) as string'],
+                capture_output=True, text=True, timeout=2,
+            )
+            # If we detected known players, that's enough
+        except Exception:
+            pass
 
-    try:
-        yield
-    finally:
+        should_duck = spotify_was_playing or music_was_playing
+
         if should_duck:
-            logger.info("Unducking audio — resuming playback")
+            playing = []
+            if spotify_was_playing:
+                playing.append("Spotify")
+            if music_was_playing:
+                playing.append("Music")
+            logger.info(f"Ducking audio — pausing {', '.join(playing)}")
             _simulate_media_play_pause()
+
+        try:
+            yield
+        finally:
+            if should_duck:
+                logger.info("Unducking audio — resuming playback")
+                _simulate_media_play_pause()
+    finally:
+        _DUCKING_DEPTH.reset(token)

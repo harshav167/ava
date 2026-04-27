@@ -1,6 +1,5 @@
 """Tests for DJ module data models."""
 
-import pytest
 
 from voice_mode.dj import CommandResult, TrackStatus
 

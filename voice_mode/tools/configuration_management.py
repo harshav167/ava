@@ -3,9 +3,9 @@
 import os
 import re
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict
 from voice_mode.server import mcp
-from voice_mode.config import BASE_DIR, reload_configuration, find_voicemode_env_files
+from voice_mode.config import reload_configuration, find_voicemode_env_files
 import logging
 
 logger = logging.getLogger("voicemode")
@@ -239,7 +239,7 @@ async def update_config(key: str, value: str) -> str:
     config_path = USER_CONFIG_PATH
     if not config_path.exists() and LEGACY_CONFIG_PATH.exists():
         config_path = LEGACY_CONFIG_PATH
-        logger.warning(f"Using deprecated .voicemode.env - please rename to voicemode.env")
+        logger.warning("Using deprecated .voicemode.env - please rename to voicemode.env")
     
     try:
         # Read existing configuration
@@ -331,7 +331,7 @@ async def config_reload() -> str:
     """
     try:
         # Get config files before reload
-        old_files = find_voicemode_env_files()
+        find_voicemode_env_files()
         
         # Reload configuration 
         reload_configuration()

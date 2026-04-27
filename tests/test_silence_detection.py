@@ -2,25 +2,88 @@
 
 import pytest
 import numpy as np
-import time
 from unittest.mock import Mock, patch, MagicMock
 import sys
 
 # Mock webrtcvad before importing voice_mode modules
 sys.modules['webrtcvad'] = MagicMock()
 
-from voice_mode.tools.converse import (
+from voice_mode.tools.converse import (  # noqa: E402
     record_audio_with_silence_detection,
-    record_audio,
     VAD_AVAILABLE
 )
-from voice_mode.config import (
+from voice_mode.config import (  # noqa: E402
     SAMPLE_RATE,
-    CHANNELS,
     VAD_CHUNK_DURATION_MS,
-    SILENCE_THRESHOLD_MS,
     MIN_RECORDING_DURATION
 )
+from voice_mode.silero_vad import build_stop_policy
+
+
+def test_stop_policy_centralizes_realtime_thresholds():
+    policy = build_stop_policy(
+        max_duration=12.0,
+        min_duration=2.0,
+        disable_silence_detection=False,
+        vad_aggressiveness=3,
+        local_silence_threshold_ms=700,
+    )
+
+    assert policy.max_duration == 12.0
+    assert policy.min_duration == 2.0
+    assert policy.disable_silence_detection is False
+    assert policy.vad_aggressiveness == 3
+    assert policy.vad_probability_threshold == 0.85
+    assert policy.realtime_silence_threshold_secs == 1.0
+    assert policy.local_silence_threshold_ms == 700
+
+
+
+
+def test_stop_policy_centralizes_local_thresholds_without_changing_mapping():
+    policy = build_stop_policy(vad_aggressiveness=2)
+
+    assert policy.vad_probability_threshold == 0.75
+    assert policy.local_vad_probability_threshold == 0.7
+
+
+def test_local_recording_accepts_precomputed_stop_policy():
+    policy = build_stop_policy(
+        max_duration=9.0,
+        min_duration=2.0,
+        disable_silence_detection=True,
+        vad_aggressiveness=3,
+    )
+
+    with patch('voice_mode.tools.converse.VAD_AVAILABLE', False), patch(
+        'voice_mode.tools.converse.record_audio'
+    ) as mock_record:
+        mock_record.return_value = np.array([1, 2, 3])
+
+        result, speech_detected = record_audio_with_silence_detection(
+            max_duration=1.0,
+            disable_silence_detection=False,
+            min_duration=0.1,
+            vad_aggressiveness=0,
+            stop_policy=policy,
+        )
+
+    mock_record.assert_called_once_with(9.0)
+    assert np.array_equal(result, np.array([1, 2, 3]))
+    assert speech_detected is True
+
+def test_stop_policy_disable_silence_detection_records_to_max_duration():
+    policy = build_stop_policy(
+        max_duration=8.0,
+        min_duration=1.0,
+        disable_silence_detection=True,
+        vad_aggressiveness=0,
+    )
+
+    assert policy.disable_silence_detection is True
+    assert policy.silence_detection_enabled is False
+    assert policy.realtime_silence_threshold_secs == 8.0
+    assert policy.vad_probability_threshold == 0.3
 
 
 class TestSilenceDetection:
@@ -170,7 +233,7 @@ class TestSilenceDetection:
         mock_sounddevice.rec.return_value = speech_chunk.reshape(-1, 1)
         
         # Should still record but treat all chunks as speech
-        result = record_audio_with_silence_detection(max_duration=0.5)
+        record_audio_with_silence_detection(max_duration=0.5)
         
         # Should have recorded for the full duration (no silence detection)
         expected_chunks = int(0.5 / (VAD_CHUNK_DURATION_MS / 1000))
@@ -194,7 +257,7 @@ class TestSilenceDetection:
     @patch('voice_mode.tools.converse.VAD_AVAILABLE', True)
     def test_min_duration_parameter(self, mock_vad):
         """Test that min_duration parameter is respected."""
-        with patch('voice_mode.tools.converse.record_audio') as mock_record:
+        with patch('voice_mode.tools.converse.record_audio'):
             # When VAD is available but we pass a min_duration
             with patch('sounddevice.InputStream'):
                 with patch('queue.Queue') as mock_queue:
@@ -206,7 +269,7 @@ class TestSilenceDetection:
                     
                     # Record with min_duration of 2 seconds
                     try:
-                        result = record_audio_with_silence_detection(
+                        record_audio_with_silence_detection(
                             max_duration=10.0, 
                             disable_silence_detection=False,
                             min_duration=2.0

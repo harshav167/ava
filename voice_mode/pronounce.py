@@ -12,7 +12,6 @@ Example: TTS \bTali\b Tar-lee # Dog name
 import logging
 import re
 import shlex
-from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
 import os
@@ -86,8 +85,8 @@ def parse_compact_rules(text: str) -> Dict[str, List[PronounceRule]]:
             tokens = shlex.split(rule_part, posix=False)
         except ValueError as e:
             logger.warning(f"Line {line_num}: Parse error in '{rule_part}': {e}")
-            logger.warning(f"  Expected format: DIRECTION pattern replacement # description")
-            logger.warning(f"  Example: TTS \\bword\\b replacement # comment")
+            logger.warning("  Expected format: DIRECTION pattern replacement # description")
+            logger.warning("  Example: TTS \\bword\\b replacement # comment")
             continue
 
         # Remove quotes from tokens but preserve content
@@ -96,7 +95,7 @@ def parse_compact_rules(text: str) -> Dict[str, List[PronounceRule]]:
         if len(tokens) < 3:
             logger.warning(f"Line {line_num}: Need at least 3 fields (direction, pattern, replacement), got {len(tokens)}")
             logger.warning(f"  Got: {rule_part}")
-            logger.warning(f"  Expected format: DIRECTION pattern replacement # description")
+            logger.warning("  Expected format: DIRECTION pattern replacement # description")
             continue
 
         direction = tokens[0].lower()

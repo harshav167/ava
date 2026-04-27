@@ -139,3 +139,14 @@ examples/
 fastmcp
 mcporter/
 osaurus/
+.collaborator
+
+# repowise API keys (local)
+.repowise/.env
+/.repowise/jobs
+/.repowise/lancedb/wiki_pages.lance
+/.repowise/wiki.db
+/.soulforge
+/cohere-transcribe-03-2026
+/VoiceInk
+/mcporter

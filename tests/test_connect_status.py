@@ -1,11 +1,20 @@
-"""Tests for voice_mode.tools.connect_status."""
+"""Tests for VoiceMode Connect status/session service boundaries."""
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from voice_mode.connect.session import (
+    ConnectPresenceSession,
+    ConnectService,
+    ConnectSessionIdentity,
+    ConnectStatusRequest,
+    _get_session_data,
+)
 from voice_mode.connect.types import UserInfo
+from voice_mode.connect.users import UserManager
 from voice_mode.tools.connect_status import connect_status as connect_status_tool
 
 # FastMCP 2.x wraps tools as FunctionTool (with .fn attribute),
@@ -18,67 +27,125 @@ def _make_user(name="cora", display_name="Cora 7", host="test-host"):
 
 
 @pytest.fixture
-def mock_client():
-    """Create a mock ConnectClient."""
+def user_manager(tmp_path):
+    users_dir = tmp_path / ".voicemode" / "connect" / "users"
+    users_dir.mkdir(parents=True)
+    return UserManager(host="test-host", users_dir=users_dir)
+
+
+@pytest.fixture
+def mock_client(user_manager):
+    """Create a mock ConnectClient with a real temp-backed UserManager."""
     client = MagicMock()
     client.is_connected = True
     client.is_connecting = False
+    client.status_message = "Connected"
     client.connect = AsyncMock()
     client.wait_connected = AsyncMock(return_value=True)
     client._primary_user = None
     client._ws = AsyncMock()
-    client.user_manager = MagicMock()
+    client.user_manager = user_manager
     client.get_status_text.return_value = "VoiceMode Connect: Connected"
     client.register_user = AsyncMock()
+
+    async def send_presence_update(users, presence=None):
+        entries = []
+        for user in users:
+            wire_presence = presence
+            if wire_presence is None:
+                wire_presence = user_manager.get_presence(user.name).value
+            elif wire_presence != "available":
+                wire_presence = "online"
+            entries.append({
+                "name": user.name,
+                "host": user.host,
+                "display_name": user.display_name,
+                "presence": wire_presence,
+            })
+        await client._ws.send(json.dumps({
+            "type": "capabilities_update",
+            "users": entries,
+            "platform": "claude-code",
+        }))
+
+    client.send_presence_update = AsyncMock(side_effect=send_presence_update)
     return client
+
+
+def _service(client, sessions_dir=None, environ=None):
+    identity = ConnectSessionIdentity(
+        sessions_dir=sessions_dir or Path("/tmp/nonexistent-voicemode-sessions"),
+        environ=environ or {},
+    )
+    return ConnectService(client=client, identity=identity)
+
+
+class TestConnectStatusTool:
+    @pytest.mark.asyncio
+    async def test_delegates_to_connect_service(self):
+        """connect_status is a thin wrapper around the session/service API."""
+        service = MagicMock()
+        service.status = AsyncMock(return_value="ok")
+
+        with patch(
+            "voice_mode.tools.connect_status.get_connect_session",
+            return_value=service,
+        ):
+            result = await _connect_status_fn(set_presence="away", username="cora")
+
+        assert result == "ok"
+        request = service.status.await_args.args[0]
+        assert isinstance(request, ConnectStatusRequest)
+        assert request.set_presence == "away"
+        assert request.username == "cora"
 
 
 class TestConnectStatusDisabled:
     @pytest.mark.asyncio
-    async def test_returns_disabled_message(self):
+    async def test_returns_disabled_message(self, mock_client):
         """connect_status returns helpful message when Connect is disabled."""
-        with patch(
-            "voice_mode.connect.config.is_enabled", return_value=False
-        ):
-            result = await _connect_status_fn()
+        service = _service(mock_client)
+        with patch("voice_mode.connect.config.is_enabled", return_value=False):
+            result = await service.status(ConnectStatusRequest())
 
         assert "VoiceMode Connect is disabled" in result
         assert "VOICEMODE_CONNECT_ENABLED=true" in result
 
 
-class TestConnectStatusNotConnected:
+class TestConnectStatusConnection:
     @pytest.mark.asyncio
     async def test_triggers_connect_when_disconnected(self, mock_client):
-        """connect_status calls client.connect() when not connected."""
+        """Status calls client.connect() when not connected."""
         mock_client.is_connected = False
         mock_client.is_connecting = False
+        service = _service(mock_client)
 
-        with (
-            patch(
-                "voice_mode.connect.config.is_enabled", return_value=True
-            ),
-            patch(
-                "voice_mode.connect.client.get_client",
-                return_value=mock_client,
-            ),
-        ):
-            await _connect_status_fn()
+        with patch("voice_mode.connect.config.is_enabled", return_value=True):
+            await service.status(ConnectStatusRequest())
 
         mock_client.connect.assert_awaited_once()
 
     @pytest.mark.asyncio
+    async def test_failed_lazy_connect_returns_guidance(self, mock_client):
+        mock_client.is_connected = False
+        mock_client.is_connecting = False
+        mock_client.wait_connected.return_value = False
+        mock_client.status_message = "Not connected (no credentials)"
+        service = _service(mock_client)
+
+        with patch("voice_mode.connect.config.is_enabled", return_value=True):
+            result = await service.status(ConnectStatusRequest())
+
+        assert "Failed to connect to VoiceMode Connect gateway" in result
+        assert "voicemode connect auth login" in result
+
+    @pytest.mark.asyncio
     async def test_returns_status_text_when_no_presence(self, mock_client):
-        """connect_status returns status text when set_presence is not given."""
-        with (
-            patch(
-                "voice_mode.connect.config.is_enabled", return_value=True
-            ),
-            patch(
-                "voice_mode.connect.client.get_client",
-                return_value=mock_client,
-            ),
-        ):
-            result = await _connect_status_fn()
+        """Status returns status text when set_presence is not given."""
+        service = _service(mock_client)
+
+        with patch("voice_mode.connect.config.is_enabled", return_value=True):
+            result = await service.status(ConnectStatusRequest())
 
         assert result == "VoiceMode Connect: Connected"
         mock_client.get_status_text.assert_called_once()
@@ -87,10 +154,7 @@ class TestConnectStatusNotConnected:
 class TestSetPresenceValidation:
     @pytest.mark.asyncio
     async def test_invalid_presence_rejected(self, mock_client):
-        """Invalid presence values return an error message."""
-        from voice_mode.tools.connect_status import _set_presence
-
-        result = await _set_presence(mock_client, "invisible")
+        result = await _service(mock_client).set_presence("invisible")
         assert "Invalid presence" in result
         assert "'invisible'" in result
         assert "available" in result
@@ -98,174 +162,99 @@ class TestSetPresenceValidation:
 
     @pytest.mark.asyncio
     async def test_random_string_rejected(self, mock_client):
-        from voice_mode.tools.connect_status import _set_presence
-
-        result = await _set_presence(mock_client, "online")
+        result = await _service(mock_client).set_presence("online")
         assert "Invalid presence" in result
 
     @pytest.mark.asyncio
     async def test_not_connected_returns_error(self, mock_client):
-        """Cannot set presence when disconnected."""
-        from voice_mode.tools.connect_status import _set_presence
-
         mock_client.is_connected = False
-        result = await _set_presence(mock_client, "available")
+        result = await _service(mock_client).set_presence("available")
         assert "Not connected" in result
         assert "Cannot set presence" in result
 
 
 class TestAliasMapping:
     @pytest.mark.asyncio
-    async def test_busy_maps_to_away(self, mock_client):
-        """'busy' alias maps to 'away'."""
-        from voice_mode.tools.connect_status import _set_presence
-
-        user = _make_user()
-        with patch(
-            "voice_mode.tools.connect_status._ensure_user_registered",
-            new_callable=AsyncMock,
-            return_value=[user],
-        ):
-            mock_client.user_manager.is_subscribed.return_value = True
-            result = await _set_presence(mock_client, "busy")
-
-        assert "Away" in result
-
-    @pytest.mark.asyncio
-    async def test_dnd_maps_to_away(self, mock_client):
-        """'dnd' alias maps to 'away'."""
-        from voice_mode.tools.connect_status import _set_presence
-
-        user = _make_user()
-        with patch(
-            "voice_mode.tools.connect_status._ensure_user_registered",
-            new_callable=AsyncMock,
-            return_value=[user],
-        ):
-            mock_client.user_manager.is_subscribed.return_value = True
-            result = await _set_presence(mock_client, "dnd")
-
-        assert "Away" in result
-
-    @pytest.mark.asyncio
-    async def test_unavailable_maps_to_away(self, mock_client):
-        """'unavailable' alias maps to 'away'."""
-        from voice_mode.tools.connect_status import _set_presence
-
-        user = _make_user()
-        with patch(
-            "voice_mode.tools.connect_status._ensure_user_registered",
-            new_callable=AsyncMock,
-            return_value=[user],
-        ):
-            mock_client.user_manager.is_subscribed.return_value = True
-            result = await _set_presence(mock_client, "unavailable")
-
+    @pytest.mark.parametrize("alias", ["busy", "dnd", "unavailable"])
+    async def test_alias_maps_to_away(self, mock_client, alias):
+        mock_client.user_manager.add("cora", display_name="Cora 7")
+        result = await _service(mock_client).set_presence(alias)
         assert "Away" in result
 
 
 class TestEnsureUserRegistered:
     @pytest.mark.asyncio
     async def test_already_registered_returns_existing(self, mock_client):
-        """Returns existing user when already registered."""
-        from voice_mode.tools.connect_status import _ensure_user_registered
-
-        user = _make_user()
+        user = mock_client.user_manager.add("cora", display_name="Cora 7")
         mock_client._primary_user = user
-        mock_client.user_manager.get.return_value = user
 
-        result = await _ensure_user_registered(mock_client)
+        result = await _service(mock_client).ensure_user_registered()
+
         assert result == [user]
         mock_client.register_user.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_explicit_username_finds_existing(self, mock_client):
-        """With username, finds existing user and registers on WebSocket."""
-        from voice_mode.tools.connect_status import _ensure_user_registered
+        user = mock_client.user_manager.add("cora", display_name="Cora 7")
 
-        user = _make_user()
-        mock_client.user_manager.get.return_value = user
+        result = await _service(mock_client).ensure_user_registered(username="cora")
 
-        result = await _ensure_user_registered(mock_client, username="cora")
         assert result == [user]
         mock_client.register_user.assert_awaited_once_with(user)
 
     @pytest.mark.asyncio
     async def test_explicit_username_creates_when_missing(self, mock_client):
-        """With username, creates user when not found on filesystem."""
-        from voice_mode.tools.connect_status import _ensure_user_registered
+        with patch("voice_mode.connect.config.get_agent_name", return_value="NewBot"):
+            result = await _service(mock_client).ensure_user_registered(username="newbot")
 
-        new_user = _make_user(name="newbot", display_name="NewBot")
-        mock_client.user_manager.get.return_value = None
-        mock_client.user_manager.add.return_value = new_user
+        user = result[0]
+        assert user.name == "newbot"
+        assert user.display_name == "NewBot"
+        assert (mock_client.user_manager._user_dir("newbot") / "inbox").exists()
+        mock_client.register_user.assert_awaited_once_with(user)
 
-        with patch(
-            "voice_mode.connect.config.get_agent_name",
-            return_value="NewBot",
-        ):
-            result = await _ensure_user_registered(
-                mock_client, username="newbot"
-            )
-
-        mock_client.user_manager.add.assert_called_once_with(
-            name="newbot", display_name="NewBot"
-        )
-        mock_client.register_user.assert_awaited_once_with(new_user)
-        assert result == [new_user]
+    @pytest.mark.asyncio
+    async def test_invalid_username_rejected(self, mock_client):
+        result = await _service(mock_client).ensure_user_registered(username="../escape")
+        assert result == ["Invalid username: Username must not contain path separators"]
+        mock_client.register_user.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_explicit_username_normalizes_case(self, mock_client):
-        """Username is lowered and stripped."""
-        from voice_mode.tools.connect_status import _ensure_user_registered
+        mock_client.user_manager.add("cora")
 
-        user = _make_user()
-        mock_client.user_manager.get.return_value = user
+        await _service(mock_client).ensure_user_registered(username="  CORA  ")
 
-        await _ensure_user_registered(mock_client, username="  CORA  ")
-        mock_client.user_manager.get.assert_called_with("cora")
+        registered_user = mock_client.register_user.await_args.args[0]
+        assert registered_user.name == "cora"
 
     @pytest.mark.asyncio
     async def test_auto_discover_users(self, mock_client):
-        """Without username, discovers users from filesystem."""
-        from voice_mode.tools.connect_status import _ensure_user_registered
+        user = mock_client.user_manager.add("cora")
 
-        user = _make_user()
-        mock_client.user_manager.list.return_value = [user]
+        result = await _service(mock_client).ensure_user_registered()
 
-        result = await _ensure_user_registered(mock_client)
         assert result == [user]
         mock_client.register_user.assert_awaited_once_with(user)
 
     @pytest.mark.asyncio
     async def test_preconfigured_users_fallback(self, mock_client):
-        """Falls back to preconfigured users when no subscribed users."""
-        from voice_mode.tools.connect_status import _ensure_user_registered
+        user = mock_client.user_manager.add("alice")
+        mock_client.user_manager.remove("alice")
+        # Recreate metadata lookup path without list() discovering users.
+        mock_client.user_manager.get = MagicMock(return_value=user)
+        mock_client.user_manager.list = MagicMock(return_value=[])
 
-        user = _make_user(name="alice")
-        mock_client.user_manager.list.return_value = []
-        mock_client.user_manager.get.return_value = user
-
-        with patch(
-            "voice_mode.connect.config.get_preconfigured_users",
-            return_value=["alice"],
-        ):
-            result = await _ensure_user_registered(mock_client)
+        with patch("voice_mode.connect.config.get_preconfigured_users", return_value=["alice"]):
+            result = await _service(mock_client).ensure_user_registered()
 
         assert result == [user]
         mock_client.register_user.assert_awaited_once_with(user)
 
     @pytest.mark.asyncio
     async def test_no_users_found_returns_empty(self, mock_client):
-        """Returns empty list when no users found anywhere."""
-        from voice_mode.tools.connect_status import _ensure_user_registered
-
-        mock_client.user_manager.list.return_value = []
-
-        with patch(
-            "voice_mode.connect.config.get_preconfigured_users",
-            return_value=[],
-        ):
-            result = await _ensure_user_registered(mock_client)
+        with patch("voice_mode.connect.config.get_preconfigured_users", return_value=[]):
+            result = await _service(mock_client).ensure_user_registered()
 
         assert result == []
         mock_client.register_user.assert_not_awaited()
@@ -274,15 +263,8 @@ class TestEnsureUserRegistered:
 class TestSetPresenceMissingUser:
     @pytest.mark.asyncio
     async def test_no_users_returns_error(self, mock_client):
-        """Returns error when no users can be found."""
-        from voice_mode.tools.connect_status import _set_presence
-
-        with patch(
-            "voice_mode.tools.connect_status._ensure_user_registered",
-            new_callable=AsyncMock,
-            return_value=[],
-        ):
-            result = await _set_presence(mock_client, "available")
+        with patch("voice_mode.connect.config.get_preconfigured_users", return_value=[]):
+            result = await _service(mock_client).set_presence("available")
 
         assert "No Connect users found" in result
 
@@ -290,140 +272,65 @@ class TestSetPresenceMissingUser:
 class TestSetPresenceAvailable:
     @pytest.mark.asyncio
     async def test_available_downgrades_without_wake(self, mock_client):
-        """'available' downgrades to 'away' without inbox-live symlink."""
-        from voice_mode.tools.connect_status import _set_presence
+        mock_client.user_manager.add("cora", display_name="Cora 7")
 
-        user = _make_user()
-
-        with patch(
-            "voice_mode.tools.connect_status._ensure_user_registered",
-            new_callable=AsyncMock,
-            return_value=[user],
-        ):
-            result = await _set_presence(mock_client, "available")
+        result = await _service(mock_client).set_presence("available")
 
         assert "Set to Away" in result
         assert "instead of Available" in result
         assert "TeamCreate" in result
         mock_client._ws.send.assert_awaited_once()
-        # Wire protocol should show "online" (away), not "available"
         sent = json.loads(mock_client._ws.send.call_args[0][0])
         assert sent["users"][0]["presence"] == "online"
 
     @pytest.mark.asyncio
-    async def test_available_succeeds_with_wake(self, mock_client, tmp_path):
-        """'available' succeeds when session has team and inbox-live is valid."""
-        from voice_mode.tools.connect_status import _set_presence
+    async def test_available_succeeds_with_wake(self, mock_client, tmp_path, monkeypatch):
+        import voice_mode.connect.users as users_mod
 
-        user = _make_user()
-
-        # Create team directory and inbox-live symlink pointing to it
-        team_dir = tmp_path / ".claude" / "teams" / "my-team" / "inboxes"
+        monkeypatch.setattr(users_mod, "CLAUDE_TEAMS_DIR", tmp_path / ".claude" / "teams")
+        team_dir = users_mod.CLAUDE_TEAMS_DIR / "my-team" / "inboxes"
         team_dir.mkdir(parents=True)
-        team_inbox = team_dir / "team-lead.json"
 
-        user_dir = tmp_path / ".voicemode" / "connect" / "users" / "cora"
-        user_dir.mkdir(parents=True)
-        symlink = user_dir / "inbox-live"
-        symlink.symlink_to(team_inbox)
+        mock_client.user_manager.add("cora", display_name="Cora 7")
+        sessions_dir = tmp_path / ".voicemode" / "sessions"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "sess-1.json").write_text(json.dumps({
+            "session_id": "sess-1",
+            "agent_name": "cora",
+            "team_name": "my-team",
+        }))
 
-        # Session data with team_name matching the symlink target
-        session_data = {"agent_name": "cora", "team_name": "my-team"}
-
-        with (
-            patch(
-                "voice_mode.tools.connect_status._ensure_user_registered",
-                new_callable=AsyncMock,
-                return_value=[user],
-            ),
-            patch("pathlib.Path.home", return_value=tmp_path),
-            patch(
-                "voice_mode.tools.connect_status._get_session_data",
-                return_value=session_data,
-            ),
-        ):
-            result = await _set_presence(mock_client, "available")
+        service = _service(
+            mock_client,
+            sessions_dir=sessions_dir,
+            environ={"CLAUDE_SESSION_ID": "sess-1"},
+        )
+        result = await service.set_presence("available")
 
         assert "Now Available" in result
         assert "Wake-from-idle: enabled" in result
-        mock_client._ws.send.assert_awaited_once()
         sent = json.loads(mock_client._ws.send.call_args[0][0])
         assert sent["users"][0]["presence"] == "available"
 
     @pytest.mark.asyncio
-    async def test_available_sends_capabilities_update(self, mock_client, tmp_path):
-        """Going 'available' sends correct WebSocket message."""
-        from voice_mode.tools.connect_status import _set_presence
+    async def test_available_includes_display_names(self, mock_client, tmp_path, monkeypatch):
+        import voice_mode.connect.users as users_mod
 
-        user = _make_user()
+        monkeypatch.setattr(users_mod, "CLAUDE_TEAMS_DIR", tmp_path / ".claude" / "teams")
+        (users_mod.CLAUDE_TEAMS_DIR / "my-team" / "inboxes").mkdir(parents=True)
+        mock_client.user_manager.add("cora", display_name="Cora 7")
+        sessions_dir = tmp_path / ".voicemode" / "sessions"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "sess-1.json").write_text(json.dumps({
+            "agent_name": "cora",
+            "team_name": "my-team",
+        }))
 
-        # Create team directory and inbox-live symlink
-        team_dir = tmp_path / ".claude" / "teams" / "my-team" / "inboxes"
-        team_dir.mkdir(parents=True)
-        team_inbox = team_dir / "team-lead.json"
-
-        user_dir = tmp_path / ".voicemode" / "connect" / "users" / "cora"
-        user_dir.mkdir(parents=True)
-        symlink = user_dir / "inbox-live"
-        symlink.symlink_to(team_inbox)
-
-        session_data = {"agent_name": "cora", "team_name": "my-team"}
-
-        with (
-            patch(
-                "voice_mode.tools.connect_status._ensure_user_registered",
-                new_callable=AsyncMock,
-                return_value=[user],
-            ),
-            patch("pathlib.Path.home", return_value=tmp_path),
-            patch(
-                "voice_mode.tools.connect_status._get_session_data",
-                return_value=session_data,
-            ),
-        ):
-            result = await _set_presence(mock_client, "available")
-
-        mock_client._ws.send.assert_awaited_once()
-        sent = json.loads(mock_client._ws.send.call_args[0][0])
-        assert sent["type"] == "capabilities_update"
-        assert sent["platform"] == "claude-code"
-        assert len(sent["users"]) == 1
-        assert sent["users"][0]["name"] == "cora"
-        assert sent["users"][0]["presence"] == "available"
-        assert "Now Available" in result
-
-    @pytest.mark.asyncio
-    async def test_available_includes_display_names(self, mock_client, tmp_path):
-        """Available response lists user display names."""
-        from voice_mode.tools.connect_status import _set_presence
-
-        user = _make_user(display_name="Cora 7")
-
-        # Create team directory and inbox-live symlink
-        team_dir = tmp_path / ".claude" / "teams" / "my-team" / "inboxes"
-        team_dir.mkdir(parents=True)
-        team_inbox = team_dir / "team-lead.json"
-
-        user_dir = tmp_path / ".voicemode" / "connect" / "users" / "cora"
-        user_dir.mkdir(parents=True)
-        symlink = user_dir / "inbox-live"
-        symlink.symlink_to(team_inbox)
-
-        session_data = {"agent_name": "cora", "team_name": "my-team"}
-
-        with (
-            patch(
-                "voice_mode.tools.connect_status._ensure_user_registered",
-                new_callable=AsyncMock,
-                return_value=[user],
-            ),
-            patch("pathlib.Path.home", return_value=tmp_path),
-            patch(
-                "voice_mode.tools.connect_status._get_session_data",
-                return_value=session_data,
-            ),
-        ):
-            result = await _set_presence(mock_client, "available")
+        result = await _service(
+            mock_client,
+            sessions_dir=sessions_dir,
+            environ={"CLAUDE_SESSION_ID": "sess-1"},
+        ).set_presence("available")
 
         assert "Cora 7" in result
 
@@ -431,97 +338,61 @@ class TestSetPresenceAvailable:
 class TestSetPresenceStaleSymlink:
     @pytest.mark.asyncio
     async def test_downgrades_without_removing_others_symlink(self, mock_client, tmp_path):
-        """Downgrades to 'away' but leaves existing symlink intact (may belong to another session)."""
-        from voice_mode.tools.connect_status import _set_presence
-
-        user = _make_user()
-
-        # Create an inbox-live symlink (belongs to another session)
-        user_dir = tmp_path / ".voicemode" / "connect" / "users" / "cora"
-        user_dir.mkdir(parents=True)
-        symlink = user_dir / "inbox-live"
+        user = mock_client.user_manager.add("cora")
+        symlink = mock_client.user_manager.inbox_live_path(user.name)
         symlink.symlink_to(tmp_path / "other-sessions-target")
 
-        # Session data WITHOUT team_name (this session has no team)
-        session_data = {"agent_name": "cora"}
+        sessions_dir = tmp_path / ".voicemode" / "sessions"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "sess-1.json").write_text(json.dumps({"agent_name": "cora"}))
 
-        with (
-            patch(
-                "voice_mode.tools.connect_status._ensure_user_registered",
-                new_callable=AsyncMock,
-                return_value=[user],
-            ),
-            patch("pathlib.Path.home", return_value=tmp_path),
-            patch(
-                "voice_mode.tools.connect_status._get_session_data",
-                return_value=session_data,
-            ),
-        ):
-            result = await _set_presence(mock_client, "available")
+        result = await _service(
+            mock_client,
+            sessions_dir=sessions_dir,
+            environ={"CLAUDE_SESSION_ID": "sess-1"},
+        ).set_presence("available")
 
-        # Should downgrade to away but NOT remove the symlink
         assert "Set to Away" in result
         assert "TeamCreate" in result
         assert symlink.is_symlink(), "Should not remove another session's symlink"
 
     @pytest.mark.asyncio
-    async def test_stale_symlink_replaced_with_correct_team(self, mock_client, tmp_path):
-        """Stale inbox-live pointing to wrong team is replaced."""
-        from voice_mode.tools.connect_status import _set_presence
+    async def test_stale_symlink_replaced_with_correct_team(self, mock_client, tmp_path, monkeypatch):
+        import voice_mode.connect.users as users_mod
 
-        user = _make_user()
+        monkeypatch.setattr(users_mod, "CLAUDE_TEAMS_DIR", tmp_path / ".claude" / "teams")
+        correct_inbox = users_mod.CLAUDE_TEAMS_DIR / "correct-team" / "inboxes" / "team-lead.json"
+        correct_inbox.parent.mkdir(parents=True)
 
-        # Create correct team directory
-        correct_team_dir = tmp_path / ".claude" / "teams" / "correct-team" / "inboxes"
-        correct_team_dir.mkdir(parents=True)
-        correct_inbox = correct_team_dir / "team-lead.json"
-
-        # Create stale symlink pointing to WRONG team
-        user_dir = tmp_path / ".voicemode" / "connect" / "users" / "cora"
-        user_dir.mkdir(parents=True)
-        symlink = user_dir / "inbox-live"
-        wrong_inbox = tmp_path / ".claude" / "teams" / "wrong-team" / "inboxes" / "team-lead.json"
+        user = mock_client.user_manager.add("cora")
+        symlink = mock_client.user_manager.inbox_live_path(user.name)
+        wrong_inbox = users_mod.CLAUDE_TEAMS_DIR / "wrong-team" / "inboxes" / "team-lead.json"
         symlink.symlink_to(wrong_inbox)
 
-        # Session data with correct team_name
-        session_data = {"agent_name": "cora", "team_name": "correct-team"}
+        sessions_dir = tmp_path / ".voicemode" / "sessions"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "sess-1.json").write_text(json.dumps({
+            "agent_name": "cora",
+            "team_name": "correct-team",
+        }))
 
-        with (
-            patch(
-                "voice_mode.tools.connect_status._ensure_user_registered",
-                new_callable=AsyncMock,
-                return_value=[user],
-            ),
-            patch("pathlib.Path.home", return_value=tmp_path),
-            patch(
-                "voice_mode.tools.connect_status._get_session_data",
-                return_value=session_data,
-            ),
-        ):
-            result = await _set_presence(mock_client, "available")
+        result = await _service(
+            mock_client,
+            sessions_dir=sessions_dir,
+            environ={"CLAUDE_SESSION_ID": "sess-1"},
+        ).set_presence("available")
 
-        # Should succeed and symlink should point to correct team
         assert "Now Available" in result
-        import os
         assert symlink.is_symlink()
-        assert os.readlink(str(symlink)) == str(correct_inbox)
+        assert symlink.readlink() == correct_inbox
 
 
 class TestSetPresenceAway:
     @pytest.mark.asyncio
     async def test_away_sends_online_wire_presence(self, mock_client):
-        """'away' maps to 'online' on the wire protocol."""
-        from voice_mode.tools.connect_status import _set_presence
+        mock_client.user_manager.add("cora")
 
-        user = _make_user()
-        mock_client.user_manager.is_subscribed.return_value = True
-
-        with patch(
-            "voice_mode.tools.connect_status._ensure_user_registered",
-            new_callable=AsyncMock,
-            return_value=[user],
-        ):
-            result = await _set_presence(mock_client, "away")
+        result = await _service(mock_client).set_presence("away")
 
         sent = json.loads(mock_client._ws.send.call_args[0][0])
         assert sent["users"][0]["presence"] == "online"
@@ -529,19 +400,11 @@ class TestSetPresenceAway:
 
     @pytest.mark.asyncio
     async def test_away_does_not_check_subscription(self, mock_client):
-        """'away' does not require inbox-live subscription."""
-        from voice_mode.tools.connect_status import _set_presence
+        mock_client.user_manager.add("cora")
+        mock_client.user_manager.is_subscribed = MagicMock()
 
-        user = _make_user()
+        result = await _service(mock_client).set_presence("away")
 
-        with patch(
-            "voice_mode.tools.connect_status._ensure_user_registered",
-            new_callable=AsyncMock,
-            return_value=[user],
-        ):
-            result = await _set_presence(mock_client, "away")
-
-        # is_subscribed should NOT have been checked for away
         mock_client.user_manager.is_subscribed.assert_not_called()
         assert "Now Away" in result
 
@@ -549,19 +412,10 @@ class TestSetPresenceAway:
 class TestSetPresenceWebSocketError:
     @pytest.mark.asyncio
     async def test_ws_send_failure(self, mock_client):
-        """WebSocket send failure returns error message."""
-        from voice_mode.tools.connect_status import _set_presence
+        mock_client.user_manager.add("cora")
+        mock_client.send_presence_update.side_effect = Exception("Connection lost")
 
-        user = _make_user()
-        mock_client.user_manager.is_subscribed.return_value = True
-        mock_client._ws.send.side_effect = Exception("Connection lost")
-
-        with patch(
-            "voice_mode.tools.connect_status._ensure_user_registered",
-            new_callable=AsyncMock,
-            return_value=[user],
-        ):
-            result = await _set_presence(mock_client, "available")
+        result = await _service(mock_client).set_presence("available")
 
         assert "Failed to set presence" in result
         assert "Connection lost" in result
@@ -569,10 +423,6 @@ class TestSetPresenceWebSocketError:
 
 class TestGetSessionData:
     def test_direct_lookup_via_env_var(self, tmp_path):
-        """Finds session file via CLAUDE_SESSION_ID env var."""
-        from voice_mode.tools.connect_status import _get_session_data
-
-        # Create a session file
         sessions_dir = tmp_path / ".voicemode" / "sessions"
         sessions_dir.mkdir(parents=True)
         session_data = {
@@ -582,122 +432,90 @@ class TestGetSessionData:
         }
         (sessions_dir / "test-123.json").write_text(json.dumps(session_data))
 
-        with (
-            patch.dict("os.environ", {"CLAUDE_SESSION_ID": "test-123"}),
-            patch("pathlib.Path.home", return_value=tmp_path),
-        ):
-            result = _get_session_data()
+        identity = ConnectSessionIdentity(
+            sessions_dir=sessions_dir,
+            environ={"CLAUDE_SESSION_ID": "test-123"},
+        )
+        result = identity.read()
 
         assert result["session_id"] == "test-123"
         assert result["team_name"] == "wimo-voice"
 
     def test_fallback_scan_by_agent_name(self, tmp_path):
-        """Falls back to scanning sessions dir when CLAUDE_SESSION_ID not set."""
-        from voice_mode.tools.connect_status import _get_session_data
-
         sessions_dir = tmp_path / ".voicemode" / "sessions"
         sessions_dir.mkdir(parents=True)
 
-        # Create session files for different agents
-        for i, (agent, team) in enumerate(
-            [("wimo", "wimo-voice"), ("cora", "cora-team")]
-        ):
-            data = {
-                "session_id": f"sess-{i}",
-                "agent_name": agent,
-                "team_name": team,
-            }
+        for i, (agent, team) in enumerate((('wimo', 'wimo-voice'), ('cora', 'cora-team'))):
+            data = {"session_id": f"sess-{i}", "agent_name": agent, "team_name": team}
             (sessions_dir / f"sess-{i}.json").write_text(json.dumps(data))
 
-        with (
-            patch.dict("os.environ", {}, clear=False),
-            patch("pathlib.Path.home", return_value=tmp_path),
-        ):
-            # Remove CLAUDE_SESSION_ID if present
-            import os
-
-            os.environ.pop("CLAUDE_SESSION_ID", None)
-            result = _get_session_data(agent_name="wimo")
+        result = ConnectSessionIdentity(sessions_dir=sessions_dir, environ={}).read(
+            agent_name="wimo"
+        )
 
         assert result["agent_name"] == "wimo"
         assert result["team_name"] == "wimo-voice"
 
     def test_fallback_returns_empty_without_agent_name(self, tmp_path):
-        """Returns empty dict when CLAUDE_SESSION_ID not set and no agent_name."""
-        from voice_mode.tools.connect_status import _get_session_data
-
-        with (
-            patch.dict("os.environ", {}, clear=False),
-            patch("pathlib.Path.home", return_value=tmp_path),
-        ):
-            import os
-
-            os.environ.pop("CLAUDE_SESSION_ID", None)
-            result = _get_session_data()
+        result = ConnectSessionIdentity(
+            sessions_dir=tmp_path / ".voicemode" / "sessions",
+            environ={},
+        ).read()
 
         assert result == {}
 
     def test_fallback_no_matching_agent(self, tmp_path):
-        """Returns empty dict when no session matches agent_name."""
-        from voice_mode.tools.connect_status import _get_session_data
-
         sessions_dir = tmp_path / ".voicemode" / "sessions"
         sessions_dir.mkdir(parents=True)
-        data = {"session_id": "sess-1", "agent_name": "cora", "team_name": "cora"}
-        (sessions_dir / "sess-1.json").write_text(json.dumps(data))
+        (sessions_dir / "sess-1.json").write_text(json.dumps({
+            "session_id": "sess-1",
+            "agent_name": "cora",
+            "team_name": "cora",
+        }))
 
-        with (
-            patch.dict("os.environ", {}, clear=False),
-            patch("pathlib.Path.home", return_value=tmp_path),
-        ):
-            import os
-
-            os.environ.pop("CLAUDE_SESSION_ID", None)
-            result = _get_session_data(agent_name="wimo")
+        result = ConnectSessionIdentity(sessions_dir=sessions_dir, environ={}).read(
+            agent_name="wimo"
+        )
 
         assert result == {}
+
+    def test_compatibility_helper_uses_default_identity(self, tmp_path):
+        sessions_dir = tmp_path / ".voicemode" / "sessions"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "test-123.json").write_text(json.dumps({"session_id": "test-123"}))
+
+        with (
+            patch.dict("os.environ", {"CLAUDE_SESSION_ID": "test-123"}),
+            patch("pathlib.Path.home", return_value=tmp_path),
+        ):
+            assert _get_session_data()["session_id"] == "test-123"
 
 
 class TestSetPresenceMultipleUsers:
     @pytest.mark.asyncio
-    async def test_multiple_users_all_included(self, mock_client, tmp_path):
-        """All users are included in the capabilities_update."""
-        from voice_mode.tools.connect_status import _set_presence
+    async def test_multiple_users_all_included(self, mock_client, tmp_path, monkeypatch):
+        import voice_mode.connect.users as users_mod
 
-        users = [
-            _make_user(name="cora", display_name="Cora 7"),
-            _make_user(name="echo", display_name="Echo"),
-        ]
+        monkeypatch.setattr(users_mod, "CLAUDE_TEAMS_DIR", tmp_path / ".claude" / "teams")
+        (users_mod.CLAUDE_TEAMS_DIR / "my-team" / "inboxes").mkdir(parents=True)
+        mock_client.user_manager.add("cora", display_name="Cora 7")
+        mock_client.user_manager.add("echo", display_name="Echo")
 
-        # Create team directory and inbox-live symlink for "cora" (first user)
-        team_dir = tmp_path / ".claude" / "teams" / "my-team" / "inboxes"
-        team_dir.mkdir(parents=True)
-        team_inbox = team_dir / "team-lead.json"
+        sessions_dir = tmp_path / ".voicemode" / "sessions"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "sess-1.json").write_text(json.dumps({
+            "agent_name": "cora",
+            "team_name": "my-team",
+        }))
 
-        user_dir = tmp_path / ".voicemode" / "connect" / "users" / "cora"
-        user_dir.mkdir(parents=True)
-        symlink = user_dir / "inbox-live"
-        symlink.symlink_to(team_inbox)
-
-        session_data = {"agent_name": "cora", "team_name": "my-team"}
-
-        with (
-            patch(
-                "voice_mode.tools.connect_status._ensure_user_registered",
-                new_callable=AsyncMock,
-                return_value=users,
-            ),
-            patch("pathlib.Path.home", return_value=tmp_path),
-            patch(
-                "voice_mode.tools.connect_status._get_session_data",
-                return_value=session_data,
-            ),
-        ):
-            result = await _set_presence(mock_client, "available")
+        result = await _service(
+            mock_client,
+            sessions_dir=sessions_dir,
+            environ={"CLAUDE_SESSION_ID": "sess-1"},
+        ).set_presence("available")
 
         sent = json.loads(mock_client._ws.send.call_args[0][0])
         assert len(sent["users"]) == 2
-        names = {u["name"] for u in sent["users"]}
-        assert names == {"cora", "echo"}
+        assert {u["name"] for u in sent["users"]} == {"cora", "echo"}
         assert "Cora 7" in result
         assert "Echo" in result

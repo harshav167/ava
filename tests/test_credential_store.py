@@ -400,10 +400,18 @@ class TestGetCredentialStore:
             store = get_credential_store()
             assert isinstance(store, PlaintextStore)
 
-    def test_default_is_plaintext(self, monkeypatch):
-        """When VOICEMODE_CREDENTIAL_STORE is unset, default to plaintext."""
+    def test_default_prefers_keyring_when_viable(self, monkeypatch):
+        """When VOICEMODE_CREDENTIAL_STORE is unset, prefer keyring if available."""
         monkeypatch.delenv("VOICEMODE_CREDENTIAL_STORE", raising=False)
-        store = get_credential_store()
+        with patch("voice_mode.credential_store._keyring_backend_is_viable", return_value=True), \
+             patch("voice_mode.credential_store._migrate_plaintext_to_keyring"):
+            store = get_credential_store()
+        assert isinstance(store, KeyringStore)
+
+    def test_default_falls_back_to_plaintext_when_keyring_unavailable(self, monkeypatch):
+        monkeypatch.delenv("VOICEMODE_CREDENTIAL_STORE", raising=False)
+        with patch("voice_mode.credential_store._keyring_backend_is_viable", return_value=False):
+            store = get_credential_store()
         assert isinstance(store, PlaintextStore)
 
     def test_singleton_cache_returns_same_instance(self, monkeypatch):

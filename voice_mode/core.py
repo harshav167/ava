@@ -5,7 +5,6 @@ This module contains the main functions used by the voice-mode script,
 extracted to allow for easier testing and reuse.
 """
 
-import asyncio
 import logging
 import os
 import tempfile
@@ -17,13 +16,10 @@ from typing import Optional
 
 import numpy as np
 from pydub import AudioSegment
-from .provider_discovery import is_local_provider
 
 from .config import SAMPLE_RATE
 from .utils import (
     get_event_logger,
-    log_tts_start,
-    log_tts_first_audio,
     update_latest_symlinks
 )
 from .audio_player import NonBlockingAudioPlayer
@@ -149,362 +145,27 @@ async def text_to_speech(
     conversation_id: Optional[str] = None,
     speed: Optional[float] = None
 ) -> tuple[bool, Optional[dict]]:
-    """Convert text to speech and play it.
-    
-    Returns:
-        tuple: (success: bool, metrics: dict) where metrics contains 'generation' and 'playback' times
-    """
-    import time
-    
-    logger.info(f"TTS: Converting text to speech: '{text[:100]}{'...' if len(text) > 100 else ''}'")
-    
-    # Always log the TTS configuration details
-    logger.info(f"TTS Request Details:")
-    logger.info(f"  • Endpoint URL: {tts_base_url}")
-    logger.info(f"  • Model: {tts_model}")
-    logger.info(f"  • Voice: {tts_voice}")
-    logger.info(f"  • Format: {audio_format or 'default'}")
-    logger.info(f"  • Client Key: {client_key}")
-    if instructions:
-        logger.info(f"  • Instructions: {instructions}")
-    
-    if debug:
-        logger.debug(f"TTS full text: {text}")
-        logger.debug(f"Debug mode enabled, will save audio files")
-    
-    metrics = {}
-    
-    # Log TTS start event
-    event_logger = get_event_logger()
-    if event_logger:
-        event_logger.log_event(event_logger.TTS_START, {
-            "message": text[:200],  # Truncate for log
-            "voice": tts_voice,
-            "model": tts_model
-        })
-    
-    try:
-        # Import config for audio format
-        from .config import (
-            TTS_AUDIO_FORMAT, validate_audio_format, get_audio_loader_for_format,
-            STREAMING_ENABLED, STREAM_CHUNK_SIZE, SAMPLE_RATE
+    """Convert text to speech and play it through the deep TTS orchestrator boundary."""
+    from .tts_orchestrator import TTSOrchestrator, TTSRequest
+
+    del openai_clients, client_key, conversation_id
+
+    orchestrator = TTSOrchestrator()
+    return await orchestrator.speak(
+        TTSRequest(
+            text=text,
+            voice=tts_voice,
+            model=tts_model,
+            base_url=tts_base_url,
+            instructions=instructions,
+            audio_format=audio_format,
+            speed=speed,
+            debug=debug,
+            debug_dir=debug_dir,
+            save_audio=save_audio,
+            audio_dir=audio_dir,
         )
-        
-        # Determine provider from base URL (simple heuristic)
-        provider = "elevenlabs"
-
-        logger.info(f"  • Detected Provider: {provider} (based on URL: {tts_base_url})")
-        
-        # Validate format for provider
-        # Use provided format or fall back to configured default
-        format_to_use = audio_format if audio_format else TTS_AUDIO_FORMAT
-        validated_format = validate_audio_format(format_to_use, provider, "tts")
-        
-        logger.debug("Making TTS API request...")
-        # Build request parameters
-        request_params = {
-            "model": tts_model,
-            "input": text,
-            "voice": tts_voice,
-            "response_format": validated_format
-        }
-        
-        # Add instructions if provided and model supports it
-        if instructions and tts_model == "gpt-4o-mini-tts":
-            request_params["instructions"] = instructions
-            logger.debug(f"TTS instructions: {instructions}")
-        
-        # Add speed parameter if provided
-        if speed is not None:
-            request_params["speed"] = speed
-            logger.info(f"  • Speed: {speed}x")
-        
-        # Track generation time
-        generation_start = time.perf_counter()
-        
-        # Streaming via OpenAI has been removed — ElevenLabs uses its own playback
-        use_streaming = False
-        
-        # Allow streaming with the requested format
-        # PCM has lowest latency but highest bandwidth
-        # Opus/MP3 have higher latency but lower bandwidth
-        if use_streaming:
-            logger.info(f"Using streaming with {validated_format} format")
-        
-        if use_streaming:
-            # Use streaming playback
-            logger.info(f"Using streaming playback for {validated_format}")
-            from .streaming import stream_tts_audio
-            
-            # Pass the client directly
-            success, stream_metrics = await stream_tts_audio(
-                text=text,
-                openai_client=openai_clients[client_key],
-                request_params=request_params,
-                debug=debug,
-                save_audio=save_audio,
-                audio_dir=audio_dir,
-                conversation_id=conversation_id
-            )
-            
-            if success:
-                metrics['ttfa'] = stream_metrics.ttfa
-                metrics['generation'] = stream_metrics.generation_time
-                metrics['playback'] = stream_metrics.playback_time - stream_metrics.generation_time
-                
-                # Pass through audio path if it exists
-                if stream_metrics.audio_path:
-                    metrics['audio_path'] = stream_metrics.audio_path
-                
-                logger.info(f"✓ TTS streamed successfully - TTFA: {metrics['ttfa']:.3f}s")
-                
-                # Save debug files if needed (we'd need to capture the full audio)
-                # For now, skip debug saving in streaming mode
-                
-                return True, metrics
-            else:
-                logger.warning("Streaming failed, falling back to buffered playback")
-                # Continue with regular buffered playback
-        
-        # Original buffered playback
-        # Use context manager to ensure response is properly closed
-        async with openai_clients[client_key].audio.speech.with_streaming_response.create(
-            **request_params
-        ) as response:
-            # Read the entire response content
-            response_content = await response.read()
-            
-        metrics['generation'] = time.perf_counter() - generation_start
-        logger.debug(f"TTS API response received, content length: {len(response_content)} bytes")
-        
-        # Log TTS first audio event
-        if event_logger:
-            event_logger.log_event(event_logger.TTS_FIRST_AUDIO)
-        
-        # Save debug file if enabled
-        if debug and debug_dir:
-            debug_path = save_debug_file(response_content, "tts-output", validated_format, debug_dir, debug, conversation_id)
-            if debug_path:
-                logger.info(f"TTS debug audio saved to: {debug_path}")
-        
-        # Save audio file if audio saving is enabled
-        audio_path = None
-        if save_audio and audio_dir:
-            audio_path = save_debug_file(response_content, "tts", validated_format, audio_dir, True, conversation_id)
-            if audio_path:
-                logger.info(f"TTS audio saved to: {audio_path}")
-                # Store audio path in metrics for the caller
-                metrics['audio_path'] = audio_path
-                # Update latest symlinks for quick access to most recent TTS audio
-                update_latest_symlinks(audio_path, "tts")
-
-        # Play audio
-        playback_start = time.perf_counter()
-        # For buffered playback, TTFA includes both API response time and audio initialization
-        # This is the time from API call to when audio actually starts playing
-        # Note: In voice-chat flows, there's additional latency from LLM processing that's not captured here
-        metrics['ttfa'] = playback_start - generation_start
-        
-        with tempfile.NamedTemporaryFile(suffix=f'.{validated_format}', delete=False) as tmp_file:
-            tmp_file.write(response_content)
-            tmp_file.flush()
-            
-            logger.debug(f"Audio written to temp file: {tmp_file.name}")
-            
-            try:
-                # Load audio file based on format
-                logger.debug(f"Loading {validated_format.upper()} audio...")
-                
-                # Get appropriate loader for format
-                loader = get_audio_loader_for_format(validated_format)
-                if not loader:
-                    logger.error(f"No loader available for format: {validated_format}")
-                    # Fallback to generic loader
-                    audio = AudioSegment.from_file(tmp_file.name, format=validated_format)
-                else:
-                    # Special handling for PCM which needs parameters
-                    if validated_format == "pcm":
-                        # Assume 16-bit PCM at standard rate
-                        audio = loader(
-                            tmp_file.name,
-                            sample_width=2,  # 16-bit
-                            frame_rate=SAMPLE_RATE,
-                            channels=1
-                        )
-                    else:
-                        audio = loader(tmp_file.name)
-                
-                logger.debug(f"Audio loaded - Duration: {len(audio)}ms, Channels: {audio.channels}, Frame rate: {audio.frame_rate}")
-                
-                # Convert to numpy array
-                logger.debug("Converting to numpy array...")
-                samples = np.array(audio.get_array_of_samples())
-                if audio.channels == 2:
-                    samples = samples.reshape((-1, 2))
-                    logger.debug("Reshaped for stereo")
-                
-                # Convert to float32 for sounddevice
-                samples = samples.astype(np.float32) / 32767.0
-                logger.debug(f"Audio converted to float32, shape: {samples.shape}")
-                
-                # Check audio devices
-                if debug:
-                    try:
-                        import sounddevice as sd
-                        devices = sd.query_devices()
-                        default_output = sd.default.device[1]
-                        logger.debug(f"Default output device: {default_output} - {devices[default_output]['name'] if default_output is not None else 'None'}")
-                    except Exception as dev_e:
-                        logger.error(f"Error querying audio devices: {dev_e}")
-                
-                logger.debug(f"Playing audio with sounddevice at {audio.frame_rate}Hz...")
-                
-                # Try to ensure sounddevice doesn't interfere with stdout/stderr
-                try:
-                    import sounddevice as sd
-                    import sys
-                    
-                    # Save current stdio state
-                    original_stdin = sys.stdin
-                    original_stdout = sys.stdout
-                    original_stderr = sys.stderr
-                    
-                    try:
-                        # Force initialization before playing
-                        sd.default.samplerate = audio.frame_rate
-                        sd.default.channels = audio.channels
-                        
-                        # Log TTS playback start event
-                        if event_logger:
-                            event_logger.log_event(event_logger.TTS_PLAYBACK_START)
-
-                        # Add configurable silence at the beginning to prevent clipping
-                        from .config import CHIME_LEADING_SILENCE
-                        silence_duration = CHIME_LEADING_SILENCE  # seconds
-                        silence_samples = int(audio.frame_rate * silence_duration)
-                        # Match the shape of the samples array exactly
-                        if samples.ndim == 1:
-                            silence = np.zeros(silence_samples, dtype=np.float32)
-                            samples_with_buffer = np.concatenate([silence, samples])
-                        else:
-                            silence = np.zeros((silence_samples, samples.shape[1]), dtype=np.float32)
-                            samples_with_buffer = np.vstack([silence, samples])
-
-                        # Use non-blocking audio player for concurrent playback support
-                        player = NonBlockingAudioPlayer()
-                        player.play(samples_with_buffer, audio.frame_rate, blocking=False)
-                        player.wait()
-                        
-                        playback_end = time.perf_counter()
-                        metrics['playback'] = playback_end - playback_start
-
-                        # Log TTS playback end event with metrics
-                        if event_logger:
-                            tts_event_data = {
-                                "metrics": {
-                                    "ttfa_ms": round(metrics.get('ttfa', 0) * 1000, 1),
-                                    "generation_ms": round(metrics.get('generation', 0) * 1000, 1),
-                                    "playback_ms": round(metrics['playback'] * 1000, 1),
-                                    "file_size_bytes": len(response_content),
-                                    "format": validated_format,
-                                    "sample_rate_hz": audio.frame_rate
-                                }
-                            }
-                            event_logger.log_event(event_logger.TTS_PLAYBACK_END, tts_event_data)
-
-                        logger.info("✓ TTS played successfully")
-                        os.unlink(tmp_file.name)
-                        return True, metrics
-                    finally:
-                        # Restore stdio if it was changed
-                        if sys.stdin != original_stdin:
-                            sys.stdin = original_stdin
-                        if sys.stdout != original_stdout:
-                            sys.stdout = original_stdout
-                        if sys.stderr != original_stderr:
-                            sys.stderr = original_stderr
-                except Exception as sd_error:
-                    logger.error(f"Sounddevice playback failed: {sd_error}")
-                    
-                    # Fallback to file-based playback methods
-                    logger.info("Attempting alternative playback methods...")
-                    
-                    # Try using PyDub's playback (requires simpleaudio or pyaudio)
-                    try:
-                        from pydub.playback import play as pydub_play
-                        logger.debug("Using PyDub playback...")
-                        pydub_play(audio)
-                        logger.info("✓ TTS played successfully with PyDub")
-                        os.unlink(tmp_file.name)
-                        metrics['playback'] = time.perf_counter() - playback_start
-                        return True, metrics
-                    except Exception as pydub_error:
-                        logger.error(f"PyDub playback failed: {pydub_error}")
-                    
-                    # Last resort: save to user's home directory for manual playback
-                    try:
-                        fallback_path = Path.home() / f"voice-mode-audio-{datetime.now().strftime('%Y%m%d_%H%M%S')}.{validated_format}"
-                        import shutil
-                        shutil.copy(tmp_file.name, fallback_path)
-                        logger.warning(f"Audio saved to {fallback_path} for manual playback")
-                        os.unlink(tmp_file.name)
-                        metrics['playback'] = time.perf_counter() - playback_start
-                        return False, metrics
-                    except Exception as save_error:
-                        logger.error(f"Failed to save audio file: {save_error}")
-                        os.unlink(tmp_file.name)
-                        metrics['playback'] = time.perf_counter() - playback_start
-                        return False, metrics
-                
-            except Exception as e:
-                logger.error(f"Error playing audio: {e}")
-                logger.error(f"Audio format - Channels: {audio.channels if 'audio' in locals() else 'unknown'}, Frame rate: {audio.frame_rate if 'audio' in locals() else 'unknown'}")
-                logger.error(f"Samples shape: {samples.shape if 'samples' in locals() else 'unknown'}")
-                
-                # Try alternative playback method in debug mode
-                if debug:
-                    try:
-                        logger.debug("Attempting alternative playback with system command...")
-                        import subprocess
-                        result = subprocess.run(['paplay', tmp_file.name], capture_output=True, timeout=10)
-                        if result.returncode == 0:
-                            logger.info("✓ Alternative playback successful")
-                            os.unlink(tmp_file.name)
-                            metrics['playback'] = time.perf_counter() - playback_start
-                            return True, metrics
-                        else:
-                            logger.error(f"Alternative playback failed: {result.stderr.decode()}")
-                    except Exception as alt_e:
-                        logger.error(f"Alternative playback error: {alt_e}")
-                
-                os.unlink(tmp_file.name)
-                metrics['playback'] = time.perf_counter() - playback_start
-                return False, metrics
-                        
-    except Exception as e:
-        logger.error(f"TTS failed: {e}")
-        logger.error(f"TTS config when error occurred - Model: {tts_model}, Voice: {tts_voice}, Base URL: {tts_base_url}")
-        logger.debug(f"Full TTS error details:", exc_info=True)
-
-        # Check for authentication errors
-        error_message = str(e).lower()
-        if hasattr(e, 'response'):
-            logger.error(f"HTTP status: {e.response.status_code if hasattr(e.response, 'status_code') else 'unknown'}")
-            logger.error(f"Response text: {e.response.text if hasattr(e.response, 'text') else 'unknown'}")
-
-            # Check for 401 Unauthorized
-            if hasattr(e.response, 'status_code') and e.response.status_code == 401:
-                logger.error("Authentication failed with TTS provider. Please check your API key.")
-        elif 'api key' in error_message or 'unauthorized' in error_message or 'authentication' in error_message:
-            logger.error("Authentication issue detected. Please check your ELEVENLABS_API_KEY.")
-
-        # Re-raise API errors so elevenlabs_tts can parse them properly
-        # This allows proper error messages to be shown to users
-        # We'll only return False for local playback errors
-        if hasattr(e, 'response') or 'Error code:' in str(e) or isinstance(e, Exception) and not error_message.startswith('error playing audio'):
-            raise
-
-        return False, metrics
+    )
 
 
 def generate_chime(

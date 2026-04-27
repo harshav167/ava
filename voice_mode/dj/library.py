@@ -219,7 +219,6 @@ class MusicLibrary:
             is_sidecar, sidecar_type.
         """
         path = Path(rel_path)
-        filename = path.name
         base_name = path.stem
         ext = path.suffix.lstrip(".").lower()
 

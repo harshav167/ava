@@ -3,7 +3,7 @@ Conversation grouping and analysis.
 """
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from voice_mode.exchanges.models import Exchange, Conversation

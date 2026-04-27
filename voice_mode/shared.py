@@ -1,23 +1,12 @@
 """Shared initialization for voicemode."""
 
-import asyncio
-import logging
-import os
 import subprocess
-import sys
-from pathlib import Path
-from typing import Dict, Optional
 
-import sounddevice as sd
 
 # Import all configuration from config.py
 from .config import (
-    DEBUG, DEBUG_DIR, SAVE_AUDIO, AUDIO_DIR,
-    AUDIO_FEEDBACK_ENABLED,
-    OPENAI_API_KEY,
-    SAMPLE_RATE, CHANNELS,
-    audio_operation_lock, service_processes,
-    logger, disable_sounddevice_stderr_redirect
+    service_processes,
+    logger,
 )
 
 # All configuration imported from config.py

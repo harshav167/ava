@@ -1,8 +1,6 @@
 """Tests for VoiceMode Connect user/mailbox management."""
 
 import json
-import time
-from pathlib import Path
 
 import pytest
 
@@ -34,7 +32,7 @@ def manager(users_dir):
 
 class TestAdd:
     def test_creates_directory_and_meta(self, manager, users_dir):
-        user = manager.add("cora", display_name="Cora 7")
+        manager.add("cora", display_name="Cora 7")
 
         user_dir = users_dir / "cora"
         assert user_dir.is_dir()
@@ -264,3 +262,22 @@ class TestGetPresence:
 
         manager.add("cora", subscribe_team="my-team")
         assert manager.get_presence("cora") == Presence.AVAILABLE
+
+
+class TestUsernameValidation:
+    def test_rejects_path_traversal(self, manager):
+        with pytest.raises(ValueError):
+            manager.add("../escape")
+
+    def test_rejects_absolute_path(self, manager):
+        with pytest.raises(ValueError):
+            manager.add("/tmp/escape")
+
+    def test_rejects_empty_username(self, manager):
+        with pytest.raises(ValueError):
+            manager.add("   ")
+
+    def test_normalizes_case(self, manager, users_dir):
+        user = manager.add("Cora")
+        assert user.name == "cora"
+        assert (users_dir / "cora").exists()

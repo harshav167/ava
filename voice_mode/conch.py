@@ -136,7 +136,7 @@ class Conch:
             self._acquired = True
             return True
 
-        except (BlockingIOError, OSError) as e:
+        except (BlockingIOError, OSError):
             # Lock held by another process, or other OS error
             if self._fd is not None:
                 try:
@@ -175,8 +175,8 @@ class Conch:
 
             if age_seconds > lock_expiry:
                 # Lock is stale - forcibly remove it
-                stale_agent = data.get("agent", "unknown")
-                stale_pid = data.get("pid", "unknown")
+                data.get("agent", "unknown")
+                data.get("pid", "unknown")
                 try:
                     self.LOCK_FILE.unlink()
                     # Log would be nice here, but avoid import complexity

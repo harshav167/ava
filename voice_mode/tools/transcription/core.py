@@ -2,7 +2,7 @@
 
 import asyncio
 from pathlib import Path
-from typing import Optional, Union, BinaryIO, Dict, Any
+from typing import Optional, Union, BinaryIO
 
 from .types import TranscriptionResult, TranscriptionBackend, OutputFormat
 from .backends import (

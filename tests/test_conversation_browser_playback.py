@@ -8,20 +8,16 @@ This tests that the playback UI elements are properly rendered.
 import os
 import sys
 import tempfile
-import json
-from pathlib import Path
+import importlib.util
 from datetime import datetime
+from pathlib import Path
 import pytest
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # Check if Flask is available
-try:
-    import flask
-    HAS_FLASK = True
-except ImportError:
-    HAS_FLASK = False
+HAS_FLASK = importlib.util.find_spec("flask") is not None
 
 def create_test_environment():
     """Create a temporary test environment with sample data."""
@@ -76,12 +72,32 @@ def create_test_environment():
         }
     ]
     
-    # Write JSONL file
-    jsonl_path = base_dir / "logs" / "conversations" / "exchanges_20250702.jsonl"
-    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(jsonl_path, 'w') as f:
-        for exchange in exchanges:
-            f.write(json.dumps(exchange) + '\n')
+    # Write current records through the shared exchange writer; append one
+    # malformed line to verify the shared reader keeps tolerant behavior.
+    from voice_mode.exchanges.models import Exchange, ExchangeMetadata
+    from voice_mode.exchanges.writer import ExchangeWriter
+
+    writer = ExchangeWriter(logs_dir=base_dir / "logs" / "conversations")
+    for exchange in exchanges:
+        exchange_type = exchange["type"]
+        if exchange_type == "conversation":
+            exchange_type = "tts"
+        writer.append(
+            Exchange(
+                version=3,
+                timestamp=datetime.fromisoformat(exchange["timestamp"]),
+                conversation_id=exchange["conversation_id"],
+                type=exchange_type,
+                text=exchange["text"],
+                project_path=exchange.get("project_path"),
+                audio_file=exchange.get("audio_file"),
+                metadata=ExchangeMetadata.from_dict(exchange.get("metadata", {})),
+            )
+        )
+
+    jsonl_path = next((base_dir / "logs" / "conversations").glob("exchanges_*.jsonl"))
+    with open(jsonl_path, "a", encoding="utf-8") as f:
+        f.write("{malformed json}\n")
     
     # Create dummy audio files
     for exchange in exchanges:
@@ -149,7 +165,7 @@ def test_playback_ui():
         play_button_count = html.count('class="play-button"')
         checkbox_count = html.count('class="conversation-checkbox"')
         
-        print(f"\nElement Counts:")
+        print("\nElement Counts:")
         print(f"  - Select All checkboxes: {select_all_count}")
         print(f"  - Play buttons: {play_button_count}")
         print(f"  - Conversation checkboxes: {checkbox_count}")
@@ -163,7 +179,7 @@ def test_playback_ui():
         # Cleanup
         import shutil
         shutil.rmtree(test_dir)
-        print(f"\n✓ Cleaned up test directory")
+        print("\n✓ Cleaned up test directory")
 
 if __name__ == "__main__":
     print("Testing Conversation Browser Playback Features")

@@ -4,10 +4,8 @@ These tests cover cross-cutting reliability behaviors rather than individual
 function happy-paths (which are in the dedicated TTS/STT test files).
 """
 
-import asyncio
 import io
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch, call
+from unittest.mock import MagicMock, patch
 
 
 # ---------------------------------------------------------------------------

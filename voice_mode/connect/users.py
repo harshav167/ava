@@ -1,13 +1,53 @@
 """User/mailbox management for VoiceMode Connect."""
 
+from __future__ import annotations
+
 import json
 import logging
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from .types import Presence, UserInfo
+
 logger = logging.getLogger("voicemode")
+
+# Lowercase mailbox names with narrow separators keep filesystem paths predictable.
+USERNAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$")
+RESERVED_USERNAMES = {".", ".."}
+
+
+def normalize_username(name: str) -> str:
+    """Normalize and validate a Connect username before filesystem use."""
+    normalized = name.lower().strip()
+    if not normalized:
+        raise ValueError("Username cannot be empty")
+    if normalized in RESERVED_USERNAMES:
+        raise ValueError(f"Invalid username: {name!r}")
+    if "/" in normalized or "\\" in normalized:
+        raise ValueError("Username must not contain path separators")
+    if normalized.startswith("-"):
+        raise ValueError("Username must start with a letter or number")
+    if not USERNAME_PATTERN.fullmatch(normalized):
+        raise ValueError(
+            "Username may only contain lowercase letters, numbers, underscores, and hyphens"
+        )
+    return normalized
+
+
+def ensure_user_path(base_dir: Path, name: str) -> Path:
+    """Return a contained user path after validating the username."""
+    normalized = normalize_username(name)
+    user_dir = (base_dir / normalized).resolve()
+    base_resolved = base_dir.resolve()
+    try:
+        user_dir.relative_to(base_resolved)
+    except ValueError as exc:
+        raise ValueError(f"Username escapes users directory: {name!r}") from exc
+    return user_dir
+
 
 # Default base directories
 VOICEMODE_DIR = Path.home() / ".voicemode"
@@ -24,23 +64,23 @@ class UserManager:
         self.users_dir = users_dir or USERS_DIR
 
     def _user_dir(self, name: str) -> Path:
-        return self.users_dir / name
+        return ensure_user_path(self.users_dir, name)
 
     def add(
         self,
         name: str,
         display_name: str = "",
         subscribe_team: Optional[str] = None,
-    ) -> "UserInfo":
+    ) -> UserInfo:
         """Add a user/mailbox. Creates directory and metadata."""
-        from .types import UserInfo, Presence
 
-        user_dir = self._user_dir(name)
+        normalized_name = normalize_username(name)
+        user_dir = self._user_dir(normalized_name)
         user_dir.mkdir(parents=True, exist_ok=True)
 
         now = datetime.now(timezone.utc)
         meta = {
-            "name": name,
+            "name": normalized_name,
             "display_name": display_name,
             "created": now.isoformat(),
             "last_seen": now.isoformat(),
@@ -55,7 +95,7 @@ class UserManager:
             inbox_path.touch()
 
         user = UserInfo(
-            name=name,
+            name=normalized_name,
             display_name=display_name,
             host=self.host,
             presence=Presence.OFFLINE,
@@ -68,14 +108,15 @@ class UserManager:
             self.subscribe(name, subscribe_team)
             user.subscribed_team = subscribe_team
 
-        logger.info(f"Added Connect user: {name}@{self.host}")
+        logger.info(f"Added Connect user: {normalized_name}@{self.host}")
         return user
 
     def remove(self, name: str) -> bool:
         """Remove a user/mailbox. Removes directory and all contents."""
         import shutil
 
-        user_dir = self._user_dir(name)
+        normalized_name = normalize_username(name)
+        user_dir = self._user_dir(normalized_name)
         if not user_dir.exists():
             return False
 
@@ -84,7 +125,7 @@ class UserManager:
 
         # Remove directory
         shutil.rmtree(user_dir)
-        logger.info(f"Removed Connect user: {name}")
+        logger.info(f"Removed Connect user: {normalized_name}")
         return True
 
     def list(self) -> list:
@@ -100,11 +141,11 @@ class UserManager:
                     users.append(user)
         return users
 
-    def get(self, name: str) -> Optional["UserInfo"]:
+    def get(self, name: str) -> Optional[UserInfo]:
         """Get a specific user's info."""
-        from .types import UserInfo, Presence
 
-        user_dir = self._user_dir(name)
+        normalized_name = normalize_username(name)
+        user_dir = self._user_dir(normalized_name)
         meta_path = user_dir / "meta.json"
 
         if not meta_path.exists():
@@ -125,7 +166,7 @@ class UserManager:
                 pass
 
         return UserInfo(
-            name=meta.get("name", name),
+            name=meta.get("name", normalized_name),
             display_name=meta.get("display_name", ""),
             host=meta.get("host", self.host),
             presence=Presence.OFFLINE,  # Presence computed elsewhere
@@ -134,12 +175,71 @@ class UserManager:
             last_seen=datetime.fromisoformat(meta["last_seen"]) if "last_seen" in meta else None,
         )
 
+    def ensure_inbox(self, name: str) -> Path:
+        """Ensure the user's inbox file exists and return it."""
+        normalized_name = normalize_username(name)
+        user_dir = self._user_dir(normalized_name)
+        user_dir.mkdir(parents=True, exist_ok=True)
+        inbox_path = user_dir / "inbox"
+        if not inbox_path.exists():
+            inbox_path.touch()
+            logger.info(f"Created inbox for user: {normalized_name}")
+        return inbox_path
+
+    def inbox_live_path(self, name: str) -> Path:
+        """Return the user's inbox-live symlink path."""
+        normalized_name = normalize_username(name)
+        return self._user_dir(normalized_name) / "inbox-live"
+
+    def team_inbox_path(self, team_name: str) -> Path:
+        """Return the Claude team inbox path for wake-from-idle delivery."""
+        return CLAUDE_TEAMS_DIR / team_name / "inboxes" / "team-lead.json"
+
+    def link_inbox_to_team(self, name: str, team_name: str) -> bool:
+        """Link a user's inbox-live to an existing Claude team inbox.
+
+        Unlike subscribe(), this validates that the team already exists so
+        available presence only succeeds for the current session's real team.
+        """
+        team_dir = CLAUDE_TEAMS_DIR / team_name
+        if not team_dir.exists():
+            logger.debug(f"Team directory doesn't exist: {team_dir}")
+            return False
+
+        normalized_name = normalize_username(name)
+        user_dir = self._user_dir(normalized_name)
+        user_dir.mkdir(parents=True, exist_ok=True)
+        symlink = user_dir / "inbox-live"
+        target = self.team_inbox_path(team_name)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            if symlink.is_symlink():
+                current_target = symlink.readlink()
+                if current_target != target:
+                    logger.info(
+                        "Removing stale inbox-live symlink "
+                        f"(points to {current_target}, expected {target})"
+                    )
+                    symlink.unlink()
+            elif symlink.exists():
+                return False
+
+            if not symlink.is_symlink():
+                symlink.symlink_to(target)
+                logger.info(f"Created inbox-live symlink: {symlink} -> {target}")
+            return True
+        except OSError as exc:
+            logger.warning(f"Failed to create inbox-live symlink: {exc}")
+            return False
+
     def subscribe(self, name: str, team_name: str) -> Path:
         """Create inbox-live symlink for a user.
 
         Handles stale symlinks and directories safely using rename-to-stale pattern.
         """
-        user_dir = self._user_dir(name)
+        normalized_name = normalize_username(name)
+        user_dir = self._user_dir(normalized_name)
         user_dir.mkdir(parents=True, exist_ok=True)
 
         symlink = user_dir / "inbox-live"
@@ -165,21 +265,23 @@ class UserManager:
             symlink.rename(stale_path)
 
         symlink.symlink_to(target)
-        logger.info(f"Subscribed {name} to team {team_name}")
+        logger.info(f"Subscribed {normalized_name} to team {team_name}")
         return symlink
 
     def unsubscribe(self, name: str) -> bool:
         """Remove inbox-live symlink for a user."""
-        symlink = self._user_dir(name) / "inbox-live"
+        normalized_name = normalize_username(name)
+        symlink = self._user_dir(normalized_name) / "inbox-live"
         if symlink.is_symlink():
             symlink.unlink()
-            logger.info(f"Unsubscribed {name}")
+            logger.info(f"Unsubscribed {normalized_name}")
             return True
         return False
 
     def is_subscribed(self, name: str) -> bool:
         """Check if a user has an active (non-stale) inbox-live symlink."""
-        symlink = self._user_dir(name) / "inbox-live"
+        normalized_name = normalize_username(name)
+        symlink = self._user_dir(normalized_name) / "inbox-live"
         if not symlink.is_symlink():
             return False
         # Check if the target exists (not stale)
@@ -191,9 +293,9 @@ class UserManager:
 
     def get_presence(self, name: str):
         """Determine presence for a user."""
-        from .types import Presence
 
-        user_dir = self._user_dir(name)
+        normalized_name = normalize_username(name)
+        user_dir = self._user_dir(normalized_name)
         if not user_dir.exists():
             return Presence.OFFLINE
         if self.is_subscribed(name):

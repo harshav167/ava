@@ -5,5 +5,8 @@
   "author": {
     "name": "Harsha",
     "email": "harsha@voicemode.dev"
-  }
+  },
+  "commands": "./commands/",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json"
 }

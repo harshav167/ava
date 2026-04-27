@@ -19,7 +19,7 @@ from urllib.request import urlopen
 
 logger = logging.getLogger(__name__)
 
-from .chapters import convert_cue_to_ffmetadata
+from .chapters import convert_cue_to_ffmetadata  # noqa: E402
 
 
 # Default locations

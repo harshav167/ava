@@ -1,6 +1,5 @@
 """Helper functions for whisper service management."""
 
-import os
 import re
 import subprocess
 import platform
@@ -235,7 +234,7 @@ async def download_coreml_model(
                 "error": "Failed to download Core ML model"
             }
 
-        logger.info(f"Download complete. Extracting Core ML model...")
+        logger.info("Download complete. Extracting Core ML model...")
 
         # Extract the zip file
         shutil.unpack_archive(coreml_zip, models_dir, 'zip')
@@ -301,7 +300,7 @@ async def convert_to_coreml(
     Returns:
         Dict with 'success' and optional 'error' or 'path'
     """
-    logger.info(f"convert_to_coreml is deprecated - using download_coreml_model instead")
+    logger.info("convert_to_coreml is deprecated - using download_coreml_model instead")
     return await download_coreml_model(model, models_dir)
 
 
@@ -321,7 +320,6 @@ async def convert_to_coreml_legacy(
         Dict with 'success' and optional 'error' or 'path'
     """
     models_dir = Path(models_dir)
-    model_path = models_dir / f"ggml-{model}.bin"
     coreml_path = models_dir / f"ggml-{model}-encoder.mlmodelc"
     
     # Check if already converted
@@ -369,7 +367,7 @@ async def convert_to_coreml_legacy(
                 )
                 if result.returncode == 0:
                     coreml_python = str(venv_coreml_python)
-            except:
+            except Exception:
                 pass
 
         if coreml_python:
@@ -388,8 +386,8 @@ async def convert_to_coreml_legacy(
             # Now compile the mlpackage to mlmodelc using coremlc
             mlpackage_path = models_dir / f"coreml-encoder-{model}.mlpackage"
             if mlpackage_path.exists():
-                logger.info(f"Compiling Core ML model with coremlc...")
-                compile_result = subprocess.run(
+                logger.info("Compiling Core ML model with coremlc...")
+                subprocess.run(
                     ["xcrun", "coremlc", "compile", str(mlpackage_path), str(models_dir)],
                     capture_output=True,
                     text=True,
@@ -509,7 +507,7 @@ async def convert_to_coreml_legacy(
             # Generic conversion failure
             error_details.update({
                 "error_category": "conversion_failure",
-                "error": f"Core ML conversion failed",
+                "error": "Core ML conversion failed",
                 "stderr": error_text[:500] if error_text else None,  # Truncate long errors
                 "stdout": stdout_text[:500] if stdout_text else None
             })

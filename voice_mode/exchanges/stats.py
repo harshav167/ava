@@ -3,8 +3,7 @@ Statistics calculation for exchanges.
 """
 
 from collections import defaultdict, Counter
-from datetime import datetime, timedelta
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any
 import re
 
 from voice_mode.exchanges.models import Exchange

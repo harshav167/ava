@@ -1,9 +1,8 @@
 """Helper functions to get whisper.cpp version and capabilities."""
 
 import subprocess
-import re
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 
 def get_whisper_version_info() -> Dict[str, Any]:
@@ -66,8 +65,6 @@ def get_whisper_version_info() -> Dict[str, Any]:
         )
         
         if result.returncode == 0:
-            output = result.stdout + result.stderr
-            
             # Check for Core ML support in help text or by running with dummy input
             # Try running with minimal command to get system info
             test_result = subprocess.run(
@@ -117,7 +114,7 @@ def get_whisper_version_info() -> Dict[str, Any]:
         else:
             info["build_type"] = "Make"
             
-    except Exception as e:
+    except Exception:
         # Silently handle errors
         pass
     

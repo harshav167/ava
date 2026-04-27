@@ -9,7 +9,7 @@ import logging
 # This must be here (not in cli.py or server.py) because numpy/scipy imports
 # add their own warning filters, which can push our filters down the list.
 # By setting the filter here, it's applied right before converse.py imports pydub.
-if not os.environ.get('VOICEMODE_DEBUG', '').lower() in ('true', '1', 'yes'):
+if os.environ.get('VOICEMODE_DEBUG', '').lower() not in ('true', '1', 'yes'):
     warnings.filterwarnings("ignore", message="'audioop' is deprecated", category=DeprecationWarning)
 
 logger = logging.getLogger("voicemode")
@@ -56,69 +56,34 @@ def parse_tool_list(tool_string: str) -> set[str]:
         return set()
     return {t.strip() for t in tool_string.split(",") if t.strip()}
 
-def determine_tools_to_load() -> tuple[set[str], str]:
+
+def determine_tools_to_load(runtime=None) -> tuple[set[str], str]:
     """
-    Determine which tools should be loaded based on environment variables.
+    Determine which tools should be loaded based on runtime configuration.
 
     Returns:
         Tuple of (tools_to_load, mode_description)
     """
-    # Check for new environment variables
-    enabled_tools = os.environ.get("VOICEMODE_TOOLS_ENABLED", "").strip()
-    disabled_tools = os.environ.get("VOICEMODE_TOOLS_DISABLED", "").strip()
+    if runtime is None:
+        from voice_mode.runtime_context import get_runtime_context
 
-    # Check for legacy variable
-    legacy_tools = os.environ.get("VOICEMODE_TOOLS", "").strip()
+        runtime = get_runtime_context()
 
-    # Get all available tools
-    all_tools = get_all_available_tools()
+    selection = runtime.select_tools(get_all_available_tools())
 
-    # Determine which tools to load
-    if enabled_tools:
-        # Whitelist mode - only load specified tools
-        requested = parse_tool_list(enabled_tools)
-        tools_to_load = requested & all_tools  # Only load tools that exist
-        invalid = requested - all_tools
-
-        if invalid:
-            logger.warning(f"Requested tools not found: {', '.join(sorted(invalid))}")
-
-        return tools_to_load, f"whitelist mode ({len(tools_to_load)} tools)"
-
-    elif disabled_tools:
-        # Blacklist mode - load all except specified
-        excluded = parse_tool_list(disabled_tools)
-        tools_to_load = all_tools - excluded
-
-        # Log if any excluded tools don't exist (informational)
-        nonexistent = excluded - all_tools
-        if nonexistent:
-            logger.debug(f"Excluded tools not found (ignoring): {', '.join(sorted(nonexistent))}")
-
-        return tools_to_load, f"blacklist mode (excluding {len(excluded & all_tools)} tools)"
-
-    elif legacy_tools:
-        # Legacy support with deprecation warning
+    if selection.invalid:
+        logger.warning(f"Requested tools not found: {', '.join(sorted(selection.invalid))}")
+    if selection.nonexistent:
+        logger.debug(
+            f"Excluded tools not found (ignoring): {', '.join(sorted(selection.nonexistent))}"
+        )
+    if selection.legacy_requested:
         logger.warning(
             "VOICEMODE_TOOLS is deprecated and will be removed in v5.0. "
             "Please use VOICEMODE_TOOLS_ENABLED or VOICEMODE_TOOLS_DISABLED instead."
         )
-        requested = parse_tool_list(legacy_tools)
-        tools_to_load = requested & all_tools
-        invalid = requested - all_tools
 
-        if invalid:
-            logger.warning(f"Requested tools not found: {', '.join(sorted(invalid))}")
-
-        return tools_to_load, f"legacy mode ({len(tools_to_load)} tools)"
-
-    else:
-        # Default - load essential tools only (converse, service)
-        # This provides basic voice interaction and service management
-        # while significantly reducing token usage in Claude Code
-        default_tools = {"converse", "service", "connect_status"}
-        tools_to_load = default_tools & all_tools  # Only load tools that exist
-        return tools_to_load, f"default mode ({len(tools_to_load)} tools)"
+    return selection.tools_to_load, selection.mode
 
 def load_tool(tool_name: str) -> bool:
     """

@@ -4,7 +4,7 @@ OAuth authentication module for VoiceMode CLI.
 Implements PKCE flow for secure authentication with voicemode.dev via Auth0.
 Handles token storage, loading, refresh, and expiry management.
 
-Storage: OS keychain via keyring (default), or ~/.voicemode/credentials (plaintext opt-out)
+Storage: OS keychain via keyring when available, or ~/.voicemode/credentials as plaintext fallback
 """
 
 import base64

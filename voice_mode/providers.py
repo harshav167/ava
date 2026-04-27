@@ -1,82 +1,126 @@
 """
-Provider selection and management for voice-mode.
+Compatibility provider selection facade for voice-mode.
 
-ElevenLabs-only provider system. Legacy function signatures kept for backward
-compatibility but all paths return ElevenLabs info.
+New code should use voice_mode.voice_provider.SpeechService. This module remains
+load-bearing for diagnostics and legacy imports by exposing provider-selection
+metadata without exposing provider discovery internals to speech callers.
 """
 
-import logging
-from typing import Dict, Optional, List, Any, Tuple
+from __future__ import annotations
 
-from .config import TTS_VOICES, TTS_MODELS, TTS_BASE_URLS, OPENAI_API_KEY, get_voice_preferences
-from .provider_discovery import provider_registry, EndpointInfo, is_local_provider
+from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger("voicemode")
+from .provider_discovery import EndpointInfo, provider_registry
+from .voice_provider import DEFAULT_TTS_MODEL, DEFAULT_TTS_VOICE, get_voice_provider
 
 
 async def get_tts_client_and_voice(
     voice: Optional[str] = None,
     model: Optional[str] = None,
-    base_url: Optional[str] = None
-) -> None:
-    """Deprecated — use elevenlabs_tts directly."""
-    raise NotImplementedError("Use elevenlabs_tts directly from voice_mode.elevenlabs_tts_stt")
+    base_url: Optional[str] = None,
+) -> tuple[Any, str, str, EndpointInfo]:
+    """Return selected TTS compatibility tuple for legacy callers.
+
+    The first element is the VoiceProvider adapter, not a raw SDK client. Legacy
+    callers in this repository only inspect the selected voice/model/endpoint.
+    """
+
+    await provider_registry.initialize()
+    endpoint = provider_registry.select_tts_endpoint(
+        voice=voice,
+        model=model,
+        base_url=base_url,
+    )
+    if endpoint is None:
+        raise RuntimeError("No TTS provider endpoints configured")
+
+    selected_voice = _select_voice_for_endpoint(endpoint, voice)
+    selected_model = _select_model_for_endpoint(endpoint, model)
+    return get_voice_provider(), selected_voice, selected_model, endpoint
 
 
 async def get_stt_client(
     model: Optional[str] = None,
-    base_url: Optional[str] = None
-) -> None:
-    """Deprecated — use elevenlabs_stt directly."""
-    raise NotImplementedError("Use elevenlabs_stt directly from voice_mode.elevenlabs_tts_stt")
+    base_url: Optional[str] = None,
+) -> tuple[Any, str, EndpointInfo]:
+    """Return selected STT compatibility tuple for legacy callers."""
+
+    await provider_registry.initialize()
+    selected_model = model or "scribe_v2"
+    endpoint = provider_registry.select_stt_endpoint(model=selected_model, base_url=base_url)
+    if endpoint is None:
+        raise RuntimeError("No STT provider endpoints configured")
+    return get_voice_provider(), selected_model, endpoint
 
 
-def _select_voice_for_endpoint(endpoint_info: EndpointInfo) -> str:
+def _select_voice_for_endpoint(
+    endpoint_info: EndpointInfo,
+    requested_voice: Optional[str] = None,
+) -> str:
     """Select the best available voice for an endpoint."""
-    if TTS_VOICES:
-        return TTS_VOICES[0]
-    return "k4hP4cQadSZQc0Oar2Ld"
+
+    if requested_voice:
+        return requested_voice
+    if endpoint_info.voices:
+        return endpoint_info.voices[0]
+    return DEFAULT_TTS_VOICE
 
 
-def _select_model_for_endpoint(endpoint_info: EndpointInfo, requested_model: Optional[str] = None) -> str:
+def _select_model_for_endpoint(
+    endpoint_info: EndpointInfo,
+    requested_model: Optional[str] = None,
+) -> str:
     """Select the best available model for an endpoint."""
+
     if requested_model:
         return requested_model
-    if TTS_MODELS:
-        return TTS_MODELS[0]
-    return "eleven_v3"
+    if endpoint_info.models:
+        return endpoint_info.models[0]
+    return DEFAULT_TTS_MODEL
 
-
-# Compatibility functions for existing code
 
 async def is_provider_available(provider_id: str, timeout: float = 2.0) -> bool:
-    """Check if a provider is available (compatibility function)."""
-    await provider_registry.initialize()
+    """Check if a configured provider id is available."""
 
-    # Only ElevenLabs is supported
-    if provider_id in ("elevenlabs", "elevenlabs-stt"):
-        return True
+    del timeout
+    await provider_registry.initialize()
+    normalized = provider_id.lower()
+    if normalized in {"elevenlabs", "elevenlabs-tts"}:
+        return bool(provider_registry.get_endpoints("tts"))
+    if normalized == "elevenlabs-stt":
+        return bool(provider_registry.get_endpoints("stt"))
     return False
 
 
 def get_provider_by_voice(voice: str) -> Optional[Dict[str, Any]]:
-    """Get provider info by voice — always returns ElevenLabs."""
-    from .config import ELEVENLABS_TTS_VOICE
+    """Return provider metadata for a TTS voice."""
+
+    endpoint = provider_registry.find_endpoint_with_voice(voice)
+    if endpoint is None:
+        endpoints = provider_registry.get_endpoints("tts")
+        endpoint = endpoints[0] if endpoints else None
 
     return {
         "id": "elevenlabs",
         "name": "ElevenLabs TTS",
         "type": "tts",
-        "base_url": "elevenlabs://tts",
-        "voices": [voice if voice else ELEVENLABS_TTS_VOICE]
+        "base_url": endpoint.base_url if endpoint else "elevenlabs://tts",
+        "voices": [voice or DEFAULT_TTS_VOICE],
     }
 
 
-def select_best_voice(provider: str = "elevenlabs", available_voices: Optional[List[str]] = None) -> Optional[str]:
-    """Select the best available voice — returns ElevenLabs default."""
-    user_preferences = get_voice_preferences()
-    if user_preferences:
-        return user_preferences[0]
+def select_best_voice(
+    provider: str = "elevenlabs",
+    available_voices: Optional[List[str]] = None,
+) -> Optional[str]:
+    """Select the best available voice for compatibility callers."""
+
+    if provider and provider.lower() not in {"elevenlabs", "elevenlabs-tts"}:
+        return None
     if available_voices:
         return available_voices[0]
-    return "k4hP4cQadSZQc0Oar2Ld"
+
+    endpoints = provider_registry.get_endpoints("tts")
+    if endpoints and endpoints[0].voices:
+        return endpoints[0].voices[0]
+    return DEFAULT_TTS_VOICE

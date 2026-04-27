@@ -344,7 +344,6 @@ class TestQueryGatewayStatus:
     @pytest.mark.asyncio
     async def test_handles_missing_websockets_package(self):
         """Returns error when websockets is not installed."""
-        import sys
         from voice_mode.cli import _query_gateway_status
 
         # Temporarily remove websockets from sys.modules to simulate missing package

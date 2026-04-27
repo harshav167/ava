@@ -1,11 +1,10 @@
 """Backend implementations for transcription."""
 
 import os
-import json
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Optional
 import httpx
 
 from voice_mode.config import OPENAI_API_KEY

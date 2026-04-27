@@ -1,9 +1,9 @@
 """Tests for dependency management system."""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from voice_mode.utils.dependencies.cache import DependencyCache
-from voice_mode.utils.dependencies.checker import detect_platform, check_dependency
+from voice_mode.utils.dependencies.checker import detect_platform
 from voice_mode.utils.dependencies.package_managers import (
     BrewManager,
     AptManager,

@@ -11,8 +11,7 @@ These tests verify that:
 import asyncio
 import os
 import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from unittest.mock import patch
 import pytest
 import numpy as np
 
@@ -21,10 +20,7 @@ os.environ['OPENAI_API_KEY'] = os.environ.get('OPENAI_API_KEY', 'test-key')
 
 # Import from the appropriate modules
 from voice_mode.config import audio_operation_lock
-from voice_mode.tools.converse import record_audio, speech_to_text
-from voice_mode.shared import (
-    disable_sounddevice_stderr_redirect,
-)
+from voice_mode.tools.converse import record_audio
 
 
 class TestStdioProtection:
@@ -84,13 +80,13 @@ class TestStdioProtection:
         original_stderr = sys.stderr
         
         with patch('sounddevice.rec') as mock_rec, \
-             patch('sounddevice.wait') as mock_wait:
+             patch('sounddevice.wait'):
             
             # Mock recording
             mock_rec.return_value = np.array([[100], [200]], dtype=np.int16)
             
             # Record audio
-            result = record_audio(1.0)
+            record_audio(1.0)
             
             # Verify stdio is unchanged
             assert sys.stdin is original_stdin
@@ -104,7 +100,7 @@ class TestStdioProtection:
         original_stderr = sys.stderr
         
         with patch('voice_mode.tools.converse.sd.rec') as mock_rec, \
-             patch('voice_mode.tools.converse.sd.wait') as mock_wait:
+             patch('voice_mode.tools.converse.sd.wait'):
             # Make recording fail
             mock_rec.side_effect = Exception("Recording failed")
             

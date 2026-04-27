@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "voicemode": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp"
+    },
+    "repowise": {
+      "command": "repowise",
+      "args": [
+        "mcp",
+        "/Users/harsha/Developer/voicemode",
+        "--transport",
+        "stdio"
+      ],
+      "description": "repowise: codebase intelligence — docs, graph, git signals, dead code, decisions"
+    }
+  }
+}

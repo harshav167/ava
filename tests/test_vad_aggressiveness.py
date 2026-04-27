@@ -1,24 +1,19 @@
 """Tests for VAD aggressiveness parameter in voice_mode."""
 
 import pytest
-import numpy as np
-import asyncio
-import queue
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
+from unittest.mock import patch, MagicMock
 import sys
 
 # Mock webrtcvad before importing voice_mode modules
 sys.modules['webrtcvad'] = MagicMock()
 
-from voice_mode.tools.converse import (
+from voice_mode.tools.converse import (  # noqa: E402
     record_audio_with_silence_detection
 )
-from voice_mode.config import (
-    SAMPLE_RATE,
-    VAD_CHUNK_DURATION_MS,
+from voice_mode.config import (  # noqa: E402
     VAD_AGGRESSIVENESS
 )
-from voice_mode.silero_vad import AGGRESSIVENESS_THRESHOLDS, get_threshold_for_aggressiveness
+from voice_mode.silero_vad import get_threshold_for_aggressiveness  # noqa: E402
 
 
 class TestVADAggressiveness:
@@ -30,7 +25,7 @@ class TestVADAggressiveness:
         mock_instance = MagicMock()
         mock_instance.return_value = 0.8  # Default: speech detected
         mock_instance.reset_states = MagicMock()
-        with patch('voice_mode.tools.converse.get_silero_vad', return_value=mock_instance) as mock_get:
+        with patch('voice_mode.tools.converse.get_silero_vad', return_value=mock_instance):
             with patch('voice_mode.tools.converse.SILERO_VAD_AVAILABLE', True):
                 yield mock_instance
 

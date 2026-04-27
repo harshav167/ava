@@ -6,9 +6,9 @@
     "name": "Harsha",
     "email": "harsha@voicemode.dev"
   },
-  "commands": "./.claude/commands/",
-  "skills": "./.claude/skills/",
+  "commands": "./commands/",
+  "skills": "./skills/",
   "agents": [],
   "hooks": [],
-  "mcp": "./.mcp.json"
+  "mcpServers": "./mcp.json"
 }

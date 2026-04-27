@@ -9,8 +9,11 @@ while Silero runs locally for instant silence detection.
 
 import asyncio
 import base64
+import io
 import logging
 import time
+import wave
+from pathlib import Path
 from typing import Optional, Callable
 
 import numpy as np
@@ -18,7 +21,7 @@ import sounddevice as sd
 from elevenlabs.realtime.scribe import AudioFormat
 from elevenlabs.realtime.connection import RealtimeEvents
 
-from .silero_vad import get_silero_vad, get_threshold_for_aggressiveness, SILERO_CHUNK_SAMPLES
+from .silero_vad import StopPolicy, build_stop_policy, get_silero_vad, SILERO_CHUNK_SAMPLES
 
 logger = logging.getLogger("voicemode")
 
@@ -33,6 +36,153 @@ SESSION_START_TIMEOUT = 10.0
 # Silence detection defaults (matching Osaurus behavior)
 DEFAULT_SILENCE_THRESHOLD_SECS = 0.8  # Osaurus: 0.3-0.8s depending on sensitivity
 DEFAULT_VAD_THRESHOLD = 0.5  # Osaurus medium: 0.75 (inverted — higher = less sensitive)
+CACHE_DIR = Path.home() / ".voicemode" / "cache"
+LAST_RECORDING_RAW = CACHE_DIR / "last_recording.raw"
+LAST_RECORDING_WAV = CACHE_DIR / "last_recording.wav"
+
+
+def _cached_audio_to_wav_buffer(cached_audio: np.ndarray):
+    wav_buffer = io.BytesIO()
+    with wave.open(wav_buffer, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SCRIBE_SAMPLE_RATE)
+        wf.writeframes(cached_audio.astype(np.int16, copy=False).tobytes())
+    wav_buffer.seek(0)
+    wav_buffer.name = "cached_recording.wav"
+    return wav_buffer
+
+
+def _write_cached_audio_files(audio_cache: list[np.ndarray]) -> tuple[Path, Path] | None:
+    if not audio_cache:
+        return None
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    all_audio = np.concatenate(audio_cache).astype(np.int16, copy=False)
+    all_audio.tofile(str(LAST_RECORDING_RAW))
+    with wave.open(str(LAST_RECORDING_WAV), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(SCRIBE_SAMPLE_RATE)
+        wf.writeframes(all_audio.tobytes())
+    logger.info(
+        "Audio cached: %s samples (%.1fs) -> %s and %s",
+        len(all_audio),
+        len(all_audio) / SCRIBE_SAMPLE_RATE,
+        LAST_RECORDING_RAW,
+        LAST_RECORDING_WAV,
+    )
+    return LAST_RECORDING_RAW, LAST_RECORDING_WAV
+
+
+def _read_cached_audio() -> np.ndarray | None:
+    if LAST_RECORDING_RAW.exists():
+        return np.fromfile(str(LAST_RECORDING_RAW), dtype=np.int16)
+    if LAST_RECORDING_WAV.exists():
+        with wave.open(str(LAST_RECORDING_WAV), "rb") as wf:
+            return np.frombuffer(wf.readframes(wf.getnframes()), dtype=np.int16).copy()
+    return None
+
+
+def _clear_cached_audio() -> None:
+    LAST_RECORDING_RAW.unlink(missing_ok=True)
+    LAST_RECORDING_WAV.unlink(missing_ok=True)
+
+
+def _cached_audio_duration(cached_audio: np.ndarray | None) -> float:
+    if cached_audio is None:
+        return 0.0
+    return len(cached_audio) / SCRIBE_SAMPLE_RATE
+
+
+def _looks_truncated(text: str, cached_audio_seconds: float, finalized_by_local_vad: bool) -> bool:
+    if not finalized_by_local_vad:
+        return False
+    normalized = text.strip()
+    if not normalized:
+        return True
+    word_count = len(normalized.split())
+    # A long recording with only a few committed words is suspicious; batch STT
+    # sees the full cached WAV and can recover from premature local finalization.
+    if cached_audio_seconds >= 8.0 and word_count < max(8, cached_audio_seconds * 0.8):
+        return True
+    if cached_audio_seconds >= 4.0 and not normalized.endswith((".", "?", "!")) and word_count < 8:
+        return True
+    return False
+
+
+def _prefer_batch_recovery(committed_text: str, fallback_result: Optional[dict]) -> Optional[dict]:
+    if not fallback_result:
+        return None
+    fallback_text = fallback_result.get("text", "").strip()
+    if len(fallback_text.split()) <= len(committed_text.split()):
+        return None
+    fallback_result.setdefault("metrics", {})["replaced_realtime_partial"] = committed_text
+    return fallback_result
+
+
+def _combine_committed_transcripts(committed_text_history: list[str]) -> str:
+    """Combine manual/periodic realtime commits without duplicating overlap."""
+    combined = ""
+    for text in committed_text_history:
+        text = text.strip()
+        if not text:
+            continue
+        if not combined:
+            combined = text
+            continue
+        if text in combined:
+            continue
+        if combined in text:
+            combined = text
+            continue
+        combined = f"{combined} {text}"
+    return combined
+
+
+async def _batch_transcribe_cached_audio(
+    api_key: str,
+    elapsed_total: float,
+    reason: str,
+    *,
+    clear_cache_on_success: bool = False,
+) -> Optional[dict]:
+    cached_audio = _read_cached_audio()
+    if cached_audio is None or len(cached_audio) == 0:
+        return None
+
+    try:
+        logger.info("Realtime STT %s — attempting batch transcription from cached audio", reason)
+        from .elevenlabs_client import elevenlabs_stt_batch
+
+        batch_result = elevenlabs_stt_batch(
+            audio_file=_cached_audio_to_wav_buffer(cached_audio),
+            model_id="scribe_v2",
+            language_code="en",
+            api_key=api_key,
+        )
+        text = batch_result.get("text", "").strip()
+        if not text:
+            return None
+        logger.info("Batch fallback succeeded: '%s'", text[:80])
+        if clear_cache_on_success:
+            _clear_cached_audio()
+        return {
+            "text": text,
+            "provider": "elevenlabs",
+            "endpoint": "scribe_v2_batch_fallback",
+            "audio_file": str(LAST_RECORDING_WAV),
+            "audio_format": "wav",
+            "metrics": {
+                "is_local": False,
+                "request_time_ms": round(elapsed_total * 1000, 1),
+                "vad_mode": "batch_fallback_from_cache",
+                "fallback_reason": reason,
+                "cached_audio_seconds": round(_cached_audio_duration(cached_audio), 1),
+            },
+        }
+    except Exception as e:
+        logger.error("Batch fallback from cache failed: %s", e)
+        return None
 
 
 async def realtime_transcribe(
@@ -45,6 +195,7 @@ async def realtime_transcribe(
     vad_aggressiveness: Optional[int] = None,
     disable_silence_detection: bool = False,
     previous_text: Optional[str] = None,
+    stop_policy: Optional[StopPolicy] = None,
 ) -> Optional[dict]:
     """
     Stream microphone audio to ElevenLabs Scribe v2 Realtime via WebSocket.
@@ -59,8 +210,12 @@ async def realtime_transcribe(
     # Fresh client every call — no connection reuse between calls
     client = ElevenLabs(api_key=api_key)
     committed_text = ""
+    committed_text_history: list[str] = []
     error_message = None
     recording = True
+    force_finalize = False
+    final_commit_requested = False
+    stop_reason = "unknown"
     session_ready = asyncio.Event()
     start_time = time.perf_counter()
 
@@ -76,23 +231,17 @@ async def realtime_transcribe(
     # Always set language — auto-detect often misidentifies accented English
     connect_options["language_code"] = language_code if (language_code and language_code != "auto") else "en"
 
-    # Calculate silence threshold based on aggressiveness
-    # Map 0-3 to Osaurus-like thresholds
-    if disable_silence_detection:
-        silence_secs = max_duration  # Effectively disabled — record until max_duration
-        vad_prob_threshold = 0.3  # Still track VAD but don't act on it
-    else:
-        # Osaurus-replicated VAD config:
-        # vadThreshold from SpeechConfiguration.swift (probability that audio is speech)
-        # silenceThresholdSeconds + pauseDuration from SpeechConfiguration.swift
-        # Osaurus has: silence detect (0.3-0.8s) + pauseDuration (1.5s) + confirmationDelay (2.0s)
-        # Total effective silence = silenceThreshold + pauseDuration = 0.5 + 1.5 = 2.0s for medium
-        # We combine these into a single silence_secs since we don't have a visual confirmation UI
-        threshold_map = {0: 0.55, 1: 0.75, 2: 0.75, 3: 0.85}  # Osaurus exact
-        silence_map = {0: 4.0, 1: 3.0, 2: 2.0, 3: 1.0}  # silenceThreshold + pauseDuration combined
-        effective_aggressiveness = vad_aggressiveness if vad_aggressiveness is not None else 1
-        silence_secs = silence_map.get(effective_aggressiveness, 2.0)
-        vad_prob_threshold = threshold_map.get(effective_aggressiveness, 0.75)
+    stop_policy = stop_policy or build_stop_policy(
+        max_duration=max_duration,
+        min_duration=min_duration,
+        disable_silence_detection=disable_silence_detection,
+        vad_aggressiveness=vad_aggressiveness,
+    )
+    max_duration = stop_policy.max_duration
+    min_duration = stop_policy.min_duration
+    disable_silence_detection = stop_policy.disable_silence_detection
+    silence_secs = stop_policy.realtime_silence_threshold_secs
+    vad_prob_threshold = stop_policy.vad_probability_threshold
 
     logger.info(
         f"ElevenLabs Realtime STT: connecting (max={max_duration}s, min={min_duration}s, "
@@ -136,27 +285,36 @@ async def realtime_transcribe(
         text = data.get("text", "")
         if text:
             committed_text = text.strip()
+            committed_text_history.append(committed_text)
             elapsed = time.perf_counter() - start_time
             logger.info(f"ElevenLabs STT committed ({elapsed:.1f}s): {committed_text[:80]}")
-            if elapsed >= min_duration:
+            if final_commit_requested and elapsed >= min_duration:
                 recording = False
 
     def on_error_event(data):
-        nonlocal error_message, recording
+        nonlocal error_message, recording, stop_reason
         # Don't overwrite a successful transcript with a close-related error
         if not committed_text:
             error_message = str(data)
             logger.error(f"ElevenLabs Realtime STT error: {data}")
         else:
             logger.debug(f"ElevenLabs Realtime STT post-commit error (ignored): {data}")
+        stop_reason = "error"
         recording = False
         session_ready.set()  # Unblock any waiter
 
     def on_close_event():
-        nonlocal recording
+        nonlocal recording, stop_reason
         logger.info("ElevenLabs Realtime STT: connection closed")
+        if stop_reason == "unknown":
+            stop_reason = "connection_closed"
         recording = False
         session_ready.set()  # Unblock any waiter
+
+    def _mark_force_finalize():
+        nonlocal force_finalize, stop_reason
+        force_finalize = True
+        stop_reason = "local_vad_silence"
 
     # Register ALL event handlers BEFORE anything else
     connection.on(RealtimeEvents.SESSION_STARTED, on_session_started)
@@ -193,6 +351,7 @@ async def realtime_transcribe(
             connection, max_duration, min_duration, start_time,
             silence_secs, vad_prob_threshold, disable_silence_detection,
             previous_text=previous_text,
+            on_local_finalize=_mark_force_finalize,
         )
     )
 
@@ -201,12 +360,34 @@ async def realtime_transcribe(
             elapsed = time.perf_counter() - start_time
             if elapsed >= max_duration:
                 logger.info("ElevenLabs Realtime STT: max duration reached")
+                stop_reason = "max_duration"
+                final_commit_requested = True
                 # Send final commit before closing
                 try:
                     await connection.commit()
                     await asyncio.sleep(0.5)  # Give server time to process
                 except Exception:
                     pass
+                break
+            if force_finalize:
+                logger.info("ElevenLabs Realtime STT: local VAD requested finalize")
+                final_commit_requested = True
+                try:
+                    await connection.commit()
+                    await asyncio.sleep(0.5)  # Give server time to process
+                except Exception:
+                    pass
+                break
+            if mic_task.done():
+                if stop_reason == "unknown":
+                    stop_reason = "mic_stream_ended"
+                if not final_commit_requested:
+                    final_commit_requested = True
+                    try:
+                        await connection.commit()
+                        await asyncio.sleep(0.5)  # Give server time to process
+                    except Exception:
+                        pass
                 break
             await asyncio.sleep(0.1)
     finally:
@@ -224,49 +405,9 @@ async def realtime_transcribe(
     elapsed_total = time.perf_counter() - start_time
 
     if error_message and not committed_text:
-        # Try batch fallback with cached audio — NEVER lose user's speech
-        from pathlib import Path
-        cache_file = Path.home() / ".voicemode" / "cache" / "last_recording.raw"
-        if cache_file.exists():
-            try:
-                logger.info("Realtime STT failed — attempting batch transcription from cached audio")
-                cached_audio = np.fromfile(str(cache_file), dtype=np.int16)
-                if len(cached_audio) > SCRIBE_SAMPLE_RATE:  # At least 1s of audio
-                    import io
-                    import wave
-                    wav_buffer = io.BytesIO()
-                    with wave.open(wav_buffer, 'wb') as wf:
-                        wf.setnchannels(1)
-                        wf.setsampwidth(2)  # 16-bit
-                        wf.setframerate(SCRIBE_SAMPLE_RATE)
-                        wf.writeframes(cached_audio.tobytes())
-                    wav_buffer.seek(0)
-                    wav_buffer.name = "cached_recording.wav"
-
-                    from .elevenlabs_client import elevenlabs_stt_batch
-                    from .config import ELEVENLABS_API_KEY
-                    batch_result = elevenlabs_stt_batch(
-                        audio_file=wav_buffer,
-                        model_id="scribe_v2",
-                        language_code="en",
-                        api_key=ELEVENLABS_API_KEY,
-                    )
-                    text = batch_result.get("text", "").strip()
-                    if text:
-                        logger.info(f"Batch fallback succeeded: '{text[:80]}'")
-                        cache_file.unlink(missing_ok=True)
-                        return {
-                            "text": text,
-                            "provider": "elevenlabs",
-                            "endpoint": "scribe_v2_batch_fallback",
-                            "metrics": {
-                                "is_local": False,
-                                "request_time_ms": round(elapsed_total * 1000, 1),
-                                "vad_mode": "batch_fallback_from_cache",
-                            },
-                        }
-            except Exception as e:
-                logger.error(f"Batch fallback from cache failed: {e}")
+        fallback_result = await _batch_transcribe_cached_audio(api_key, elapsed_total, "failed")
+        if fallback_result:
+            return fallback_result
 
         return {
             "error_type": "connection_failed",
@@ -275,20 +416,43 @@ async def realtime_transcribe(
         }
 
     if committed_text:
+        committed_text = _combine_committed_transcripts(committed_text_history)
+        cached_audio = _read_cached_audio()
+        cached_audio_seconds = _cached_audio_duration(cached_audio)
+        if _looks_truncated(
+            committed_text,
+            cached_audio_seconds,
+            stop_reason in {"local_vad_silence", "max_duration"},
+        ):
+            fallback_result = await _batch_transcribe_cached_audio(
+                api_key, elapsed_total, "suspected_truncated_realtime_commit"
+            )
+            recovered = _prefer_batch_recovery(committed_text, fallback_result)
+            if recovered:
+                return recovered
         return {
             "text": committed_text,
             "provider": "elevenlabs",
             "endpoint": "scribe_v2_realtime",
+            "audio_file": str(LAST_RECORDING_WAV) if LAST_RECORDING_WAV.exists() else None,
+            "audio_format": "wav" if LAST_RECORDING_WAV.exists() else None,
             "metrics": {
                 "is_local": False,
                 "request_time_ms": round(elapsed_total * 1000, 1),
                 "vad_mode": "local_silero",
+                "stop_reason": stop_reason,
+                "cached_audio_seconds": round(cached_audio_seconds, 1),
             },
         }
     else:
+        fallback_result = await _batch_transcribe_cached_audio(api_key, elapsed_total, "no_committed_transcript")
+        if fallback_result:
+            return fallback_result
         return {
             "error_type": "no_speech",
             "provider": "elevenlabs",
+            "audio_file": str(LAST_RECORDING_WAV) if LAST_RECORDING_WAV.exists() else None,
+            "audio_format": "wav" if LAST_RECORDING_WAV.exists() else None,
             "metrics": {
                 "is_local": False,
                 "request_time_ms": round(elapsed_total * 1000, 1),
@@ -305,6 +469,7 @@ async def _stream_microphone_with_local_vad(
     vad_prob_threshold: float,
     disable_silence_detection: bool,
     previous_text: Optional[str] = None,
+    on_local_finalize: Optional[Callable[[], None]] = None,
 ):
     """
     Stream microphone audio to ElevenLabs WebSocket while running
@@ -425,7 +590,6 @@ async def _stream_microphone_with_local_vad(
                     if is_speech:
                         speech_detected_ever = True
                         silence_start = None
-                        last_speech_time = now
                     else:
                         # Silence detected
                         if silence_start is None:
@@ -444,7 +608,10 @@ async def _stream_microphone_with_local_vad(
                                 f"(threshold={silence_threshold_secs}s) — sending manual commit"
                             )
                             try:
-                                await connection.commit()
+                                if on_local_finalize:
+                                    on_local_finalize()
+                                else:
+                                    await connection.commit()
                             except Exception as e:
                                 logger.error(f"Manual commit failed: {e}")
                             # Wait briefly for ElevenLabs to process the commit
@@ -463,13 +630,6 @@ async def _stream_microphone_with_local_vad(
     # Save cached audio to disk for crash resilience
     if audio_cache:
         try:
-            import io
-            from pathlib import Path
-            cache_dir = Path.home() / ".voicemode" / "cache"
-            cache_dir.mkdir(parents=True, exist_ok=True)
-            cache_file = cache_dir / "last_recording.raw"
-            all_audio = np.concatenate(audio_cache)
-            all_audio.tofile(str(cache_file))
-            logger.info(f"Audio cached: {len(all_audio)} samples ({len(all_audio)/SCRIBE_SAMPLE_RATE:.1f}s) → {cache_file}")
+            _write_cached_audio_files(audio_cache)
         except Exception as e:
             logger.error(f"Failed to cache audio: {e}")

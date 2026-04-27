@@ -49,21 +49,29 @@ async def _connect_lifespan(app: FastMCP):
 mcp = FastMCP("voicemode", lifespan=_connect_lifespan)
 
 # Import shared configuration and utilities
-from . import config
+from .runtime_context import get_runtime_context  # noqa: E402
+
+runtime = get_runtime_context()
+state = runtime.state()
 
 # Auto-import all tools, prompts, and resources
 # The __init__.py files in each directory handle the imports
-from . import tools
-from . import prompts 
-from . import resources
+from . import tools  # noqa: F401, E402 — side-effect: registers MCP tools
+from . import prompts  # noqa: F401, E402 — side-effect: registers MCP prompts
+from . import resources  # noqa: F401, E402 — side-effect: registers MCP resources
+
 
 # Main entry point
 def main():
     """Run the VoiceMode MCP server."""
     import sys
-    from .config import setup_logging, EVENT_LOG_ENABLED, EVENT_LOG_DIR
+    from .config import setup_logging
     from .utils import initialize_event_logger
-    from .utils.ffmpeg_check import check_ffmpeg, check_ffprobe, get_install_instructions
+    from .utils.ffmpeg_check import (
+        check_ffmpeg,
+        check_ffprobe,
+        get_install_instructions,
+    )
     from pathlib import Path
 
     # Note: Warning filters are set at module level (top of file) to catch
@@ -73,51 +81,53 @@ def main():
     # so the LLM can see error messages in tool responses
     # MCP servers use stdio with stdin/stdout connected to pipes, not terminals
     is_mcp_mode = not sys.stdin.isatty() or not sys.stdout.isatty()
-    
+
     # Check FFmpeg availability
     ffmpeg_installed, _ = check_ffmpeg()
     ffprobe_installed, _ = check_ffprobe()
     ffmpeg_available = ffmpeg_installed and ffprobe_installed
-    
+
     if not ffmpeg_available and not is_mcp_mode:
         # Interactive mode - show error and exit
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("⚠️  FFmpeg Installation Required")
-        print("="*60)
+        print("=" * 60)
         print(get_install_instructions())
-        print("="*60 + "\n")
+        print("=" * 60 + "\n")
         print("❌ Voice Mode cannot start without FFmpeg.")
         print("Please install FFmpeg and try again.\n")
         sys.exit(1)
-    
+
     # Set up logging
     logger = setup_logging()
-    
+
     # Log version information
     from .version import __version__
+
     logger.info(f"Starting VoiceMode v{__version__}")
-    
+
     # Log FFmpeg status for MCP mode
-    if not ffmpeg_available:
-        logger.warning("FFmpeg is not installed - audio conversion features will not work")
-        logger.warning("Voice features will fail with helpful error messages")
-        # Store this globally so tools can check it
-        config.FFMPEG_AVAILABLE = False
-    else:
-        config.FFMPEG_AVAILABLE = True
-    
-    # Initialize event logger
-    if EVENT_LOG_ENABLED:
-        event_logger = initialize_event_logger(
-            log_dir=Path(EVENT_LOG_DIR),
-            enabled=True
+    state.ffmpeg_available = ffmpeg_available
+    if not state.ffmpeg_available:
+        logger.warning(
+            "FFmpeg is not installed - audio conversion features will not work"
         )
-        logger.info(f"Event logging enabled, writing to {EVENT_LOG_DIR}")
+        logger.warning("Voice features will fail with helpful error messages")
+
+    settings = runtime.settings()
+
+    # Initialize event logger
+    if settings.event_log_enabled:
+        initialize_event_logger(
+            log_dir=Path(settings.event_log_dir), enabled=True
+        )
+        logger.info(f"Event logging enabled, writing to {settings.event_log_dir}")
     else:
         logger.info("Event logging disabled")
-    
+
     # Run the server
     mcp.run(transport="stdio")
+
 
 if __name__ == "__main__":
     main()

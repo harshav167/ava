@@ -2,8 +2,7 @@
 
 import os
 import pytest
-import pytest_asyncio
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 from fastmcp import Client
 from voice_mode.server import mcp
 
@@ -38,7 +37,7 @@ class TestSkipTTS:
             mock_tts.return_value = (True, {"ttfa": 1.0, "generation": 1.0, "playback": 2.0}, {"provider": "openai"})
             
             async with Client(voice_mode_server) as client:
-                result = await client.call_tool(
+                await client.call_tool(
                     "converse",
                     {
                         "message": "Test message",
@@ -59,7 +58,7 @@ class TestSkipTTS:
             mock_tts.return_value = (True, {"ttfa": 1.0, "generation": 1.0, "playback": 2.0}, {"provider": "openai"})
             
             async with Client(voice_mode_server) as client:
-                result = await client.call_tool(
+                await client.call_tool(
                     "converse",
                     {
                         "message": "Test message",
@@ -81,7 +80,7 @@ class TestSkipTTS:
             mock_tts.return_value = (True, {"ttfa": 1.0, "generation": 1.0, "playback": 2.0}, {"provider": "openai"})
             
             async with Client(voice_mode_server) as client:
-                result = await client.call_tool(
+                await client.call_tool(
                     "converse",
                     {
                         "message": "Test message",
@@ -103,7 +102,7 @@ class TestSkipTTS:
             mock_tts.return_value = (True, {"ttfa": 1.0, "generation": 1.0, "playback": 2.0}, {"provider": "openai"})
             
             async with Client(voice_mode_server) as client:
-                result = await client.call_tool(
+                await client.call_tool(
                     "converse",
                     {
                         "message": "Test message",

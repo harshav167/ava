@@ -39,7 +39,7 @@ def detect_gpu() -> Tuple[bool, Optional[str]]:
             # Intel Macs might have Metal but less powerful
             # Still return True as Metal is available
             return True, "metal"
-        except:
+        except Exception:
             # Fallback - assume Metal is available on macOS
             return True, "metal"
     
@@ -92,7 +92,7 @@ def detect_gpu() -> Tuple[bool, Optional[str]]:
                     return False, "cpu"
                 logger.debug("AMD GPU detected via lspci (ROCm not available)")
                 return False, "cpu"  # GPU present but no ROCm
-        except:
+        except Exception:
             pass
     
     # No GPU detected or unsupported platform

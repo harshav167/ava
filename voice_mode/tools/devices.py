@@ -116,7 +116,7 @@ async def voice_status() -> str:
             status_lines.append("\nAudio Devices:")
             status_lines.append(f"  Input: {default_input['name']}")
             status_lines.append(f"  Output: {default_output['name']}")
-        except:
+        except Exception:
             status_lines.append("\nAudio Devices: Unable to query")
         
         return "\n".join(status_lines)

@@ -1,8 +1,7 @@
 """Tests for the DJController class."""
 
-import pytest
 
-from voice_mode.dj import DJController, TrackStatus
+from voice_mode.dj import TrackStatus
 
 
 class TestDJControllerStatus:

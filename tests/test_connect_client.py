@@ -127,25 +127,22 @@ class TestConnectClientConnect:
         assert client._task is None
 
     @pytest.mark.asyncio
-    async def test_connect_no_credentials(self, client):
-        with (
-            patch("voice_mode.connect.client.connect_config") as mock_config,
-            patch("voice_mode.connect.client.asyncio") as mock_asyncio,
-        ):
+    async def test_connect_no_credentials(self, user_manager):
+        client = ConnectClient(user_manager, credentials_provider=AsyncMock(return_value=None))
+        with patch("voice_mode.connect.client.connect_config") as mock_config:
             mock_config.is_enabled.return_value = True
-            mock_asyncio.to_thread = AsyncMock(return_value=None)
             await client.connect()
 
         assert "no credentials" in client.status_message
 
     @pytest.mark.asyncio
-    async def test_connect_auth_error(self, client):
-        with (
-            patch("voice_mode.connect.client.connect_config") as mock_config,
-            patch("voice_mode.connect.client.asyncio") as mock_asyncio,
-        ):
+    async def test_connect_auth_error(self, user_manager):
+        client = ConnectClient(
+            user_manager,
+            credentials_provider=AsyncMock(side_effect=Exception("auth failed")),
+        )
+        with patch("voice_mode.connect.client.connect_config") as mock_config:
             mock_config.is_enabled.return_value = True
-            mock_asyncio.to_thread = AsyncMock(side_effect=Exception("auth failed"))
             await client.connect()
 
         assert "Auth error" in client.status_message
@@ -421,7 +418,11 @@ class TestGetStatusText:
         assert "iPhone" in text
         # mcp-server device should be filtered
         lines = text.split("\n")
-        device_lines = [l for l in lines if l.strip().startswith("Device") or "mcp-server" in l.lower()]
+        device_lines = [
+            line
+            for line in lines
+            if line.strip().startswith("Device") or "mcp-server" in line.lower()
+        ]
         assert len(device_lines) == 0
 
     def test_shows_registered_users(self, client, user_manager):

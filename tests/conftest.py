@@ -5,9 +5,8 @@ import sys
 import tempfile
 import subprocess
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 import pytest
-import pytest_asyncio
 
 # Add voice_mode to path for testing
 sys.path.insert(0, str(Path(__file__).parent.parent))

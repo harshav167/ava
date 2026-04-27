@@ -2,7 +2,6 @@
 
 import json
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 
 import pytest
 
@@ -25,7 +24,7 @@ def user_dir(tmp_path):
 
 class TestDeliverMessage:
     def test_creates_jsonl_entry(self, user_dir):
-        result = deliver_message(user_dir, "hello", sender="user", source="dashboard")
+        deliver_message(user_dir, "hello", sender="user", source="dashboard")
 
         inbox = user_dir / "inbox"
         lines = inbox.read_text().strip().splitlines()
@@ -44,10 +43,10 @@ class TestDeliverMessage:
         deliver_message(user_dir, "third")
 
         inbox = user_dir / "inbox"
-        lines = [l for l in inbox.read_text().strip().splitlines() if l.strip()]
+        lines = [line for line in inbox.read_text().strip().splitlines() if line.strip()]
         assert len(lines) == 3
 
-        texts = [json.loads(l)["text"] for l in lines]
+        texts = [json.loads(line)["text"] for line in lines]
         assert texts == ["first", "second", "third"]
 
     def test_writes_to_live_inbox(self, user_dir, tmp_path):
@@ -97,7 +96,7 @@ class TestDeliverMessage:
 
         # Should only have the message — no delivery confirmation in recipient inbox
         inbox = user_dir / "inbox"
-        lines = [l for l in inbox.read_text().strip().splitlines() if l.strip()]
+        lines = [line for line in inbox.read_text().strip().splitlines() if line.strip()]
         assert len(lines) == 1
 
         msg = json.loads(lines[0])
@@ -120,7 +119,7 @@ class TestReadInbox:
         # Write messages with known timestamps
         now = datetime.now(timezone.utc)
         past = now - timedelta(hours=2)
-        recent = now - timedelta(minutes=5)
+        now - timedelta(minutes=5)
 
         inbox = user_dir / "inbox"
         inbox.write_text("")  # Clear

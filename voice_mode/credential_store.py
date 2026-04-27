@@ -5,8 +5,8 @@ Provides KeyringStore (OS keychain) and PlaintextStore (file-based) implementati
 The active store is selected based on VOICEMODE_CREDENTIAL_STORE environment variable
 and keyring backend availability.
 
-Default: plaintext (file-based)
-Opt-in: VOICEMODE_CREDENTIAL_STORE=keyring
+Default: keyring when available, otherwise plaintext fallback
+Override: VOICEMODE_CREDENTIAL_STORE=keyring|plaintext
 """
 
 import json
@@ -191,28 +191,32 @@ def get_credential_store() -> CredentialStore:
     """Get the active credential store based on configuration and availability.
 
     Priority:
-    1. VOICEMODE_CREDENTIAL_STORE=plaintext (or unset, default) -> PlaintextStore
+    1. VOICEMODE_CREDENTIAL_STORE=plaintext -> PlaintextStore
     2. VOICEMODE_CREDENTIAL_STORE=keyring -> KeyringStore if viable
-    3. Fallback to PlaintextStore with warning if keyring backend is unavailable
+    3. Unset/auto -> KeyringStore when viable, otherwise PlaintextStore
     """
     global _cached_store
     if _cached_store is not None:
         return _cached_store
 
-    store_type = os.getenv("VOICEMODE_CREDENTIAL_STORE", "plaintext").lower()
+    store_type = os.getenv("VOICEMODE_CREDENTIAL_STORE", "auto").lower()
 
     if store_type == "plaintext":
         _cached_store = PlaintextStore()
         return _cached_store
 
-    # Explicit keyring request
-    if store_type == "keyring" and _keyring_backend_is_viable():
+    if store_type not in {"auto", "keyring", "plaintext"}:
+        logger.warning(
+            f"Unknown credential store {store_type!r}; defaulting to automatic selection."
+        )
+        store_type = "auto"
+
+    if _keyring_backend_is_viable():
         store = KeyringStore()
         _migrate_plaintext_to_keyring(store)
         _cached_store = store
         return _cached_store
 
-    # Keyring requested but not viable — fall back
     if store_type == "keyring":
         logger.warning(
             "Keyring backend unavailable (headless system?). "

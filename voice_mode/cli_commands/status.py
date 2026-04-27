@@ -4,7 +4,6 @@ Shows complete state of VoiceMode - how it's running, which services are availab
 and their configuration in a single view.
 """
 
-import asyncio
 import json
 import os
 import platform
@@ -14,7 +13,7 @@ import time
 from dataclasses import dataclass, asdict
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, Optional
 
 import click
 
@@ -25,7 +24,7 @@ from voice_mode.config import (
     OPENAI_API_KEY,
     env_bool,
 )
-from voice_mode.utils.services.common import find_process_by_port, check_service_status
+from voice_mode.utils.services.common import check_service_status
 
 
 class ServiceStatus(str, Enum):

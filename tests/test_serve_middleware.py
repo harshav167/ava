@@ -7,17 +7,19 @@ Tests for:
 - Helper functions: get_client_ip, ip_in_cidrs
 """
 
-import pytest
 from starlette.applications import Starlette
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
+from starlette.requests import Request
 from starlette.testclient import TestClient
+from unittest.mock import patch
 
 from voice_mode.serve_middleware import (
     IPAllowlistMiddleware,
     SecretPathMiddleware,
     TokenAuthMiddleware,
     get_client_ip,
+    redact_request_path,
     ip_in_cidrs,
     ANTHROPIC_CIDRS,
     LOCAL_CIDRS,
@@ -176,35 +178,52 @@ class TestGetClientIp:
     """Tests for the get_client_ip helper function."""
 
     def test_x_forwarded_for_single_ip(self):
-        """Test X-Forwarded-For header with single IP."""
-        app = Starlette(routes=[Route("/", echo_ip)])
-        client = TestClient(app)
-
-        response = client.get("/", headers={"X-Forwarded-For": "203.0.113.50"})
-        assert response.text == "IP: 203.0.113.50"
+        """Forwarded header is used only when the direct client is trusted."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"x-forwarded-for", b"203.0.113.50")],
+            "client": ("10.1.2.3", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "query_string": b"",
+            "http_version": "1.1",
+        }
+        request = Request(scope)
+        assert get_client_ip(request, trusted_proxy_cidrs=["10.0.0.0/8"]) == "203.0.113.50"
 
     def test_x_forwarded_for_multiple_ips(self):
-        """Test X-Forwarded-For header with multiple IPs (chain)."""
-        app = Starlette(routes=[Route("/", echo_ip)])
-        client = TestClient(app)
-
-        # First IP should be used (the original client)
-        response = client.get(
-            "/",
-            headers={"X-Forwarded-For": "203.0.113.50, 70.41.3.18, 150.172.238.178"}
-        )
-        assert response.text == "IP: 203.0.113.50"
+        """First hop in forwarded chain is used for trusted proxies."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"x-forwarded-for", b"203.0.113.50, 70.41.3.18, 150.172.238.178")],
+            "client": ("10.1.2.3", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "query_string": b"",
+            "http_version": "1.1",
+        }
+        request = Request(scope)
+        assert get_client_ip(request, trusted_proxy_cidrs=["10.0.0.0/8"]) == "203.0.113.50"
 
     def test_x_forwarded_for_with_spaces(self):
-        """Test X-Forwarded-For header with extra spaces."""
-        app = Starlette(routes=[Route("/", echo_ip)])
-        client = TestClient(app)
-
-        response = client.get(
-            "/",
-            headers={"X-Forwarded-For": "  203.0.113.50  ,  70.41.3.18  "}
-        )
-        assert response.text == "IP: 203.0.113.50"
+        """Spaces in forwarded chain are stripped for trusted proxies."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"x-forwarded-for", b"  203.0.113.50  ,  70.41.3.18  ")],
+            "client": ("10.1.2.3", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "query_string": b"",
+            "http_version": "1.1",
+        }
+        request = Request(scope)
+        assert get_client_ip(request, trusted_proxy_cidrs=["10.0.0.0/8"]) == "203.0.113.50"
 
     def test_fallback_to_request_client(self):
         """Test fallback to request.client when no X-Forwarded-For."""
@@ -217,6 +236,40 @@ class TestGetClientIp:
         assert "IP:" in response.text
         # Should NOT be 0.0.0.0 since TestClient provides a client
         assert response.text != "IP: 0.0.0.0"
+
+    def test_untrusted_proxy_header_is_ignored(self):
+        """X-Forwarded-For must be ignored unless direct client is trusted."""
+        app = Starlette(
+            routes=[
+                Route(
+                    "/",
+                    lambda request: PlainTextResponse(
+                        get_client_ip(request, trusted_proxy_cidrs=["10.0.0.0/8"])
+                    ),
+                )
+            ]
+        )
+        client = TestClient(app)
+
+        response = client.get("/", headers={"X-Forwarded-For": "203.0.113.50"})
+        assert response.text == "testclient"
+
+    def test_trusted_proxy_header_is_used(self):
+        """Trusted proxy ranges are allowed to supply X-Forwarded-For."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"x-forwarded-for", b"203.0.113.50")],
+            "client": ("10.1.2.3", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "query_string": b"",
+            "http_version": "1.1",
+        }
+        request = Request(scope)
+
+        assert get_client_ip(request, trusted_proxy_cidrs=["10.0.0.0/8"]) == "203.0.113.50"
 
 
 # =============================================================================
@@ -231,11 +284,13 @@ class TestIPAllowlistMiddleware:
         """Test that allowed IP addresses pass through."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=["203.0.113.0/24"]
+            allowed_cidrs=["203.0.113.0/24"],
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
-        response = client.get("/", headers={"X-Forwarded-For": "203.0.113.50"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="203.0.113.50"):
+            response = client.get("/", headers={"X-Forwarded-For": "203.0.113.50"})
         assert response.status_code == 200
         assert response.text == "OK"
 
@@ -243,11 +298,13 @@ class TestIPAllowlistMiddleware:
         """Test that denied IP addresses get 403 response."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=["192.168.0.0/16"]
+            allowed_cidrs=["192.168.0.0/16"],
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
-        response = client.get("/", headers={"X-Forwarded-For": "8.8.8.8"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="8.8.8.8"):
+            response = client.get("/", headers={"X-Forwarded-For": "8.8.8.8"})
         assert response.status_code == 403
         assert "Forbidden" in response.text
         assert "8.8.8.8" in response.text
@@ -256,102 +313,149 @@ class TestIPAllowlistMiddleware:
         """Test localhost IP in LOCAL_CIDRS."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=LOCAL_CIDRS
+            allowed_cidrs=LOCAL_CIDRS,
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
-        response = client.get("/", headers={"X-Forwarded-For": "127.0.0.1"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="127.0.0.1"):
+            response = client.get("/", headers={"X-Forwarded-For": "127.0.0.1"})
         assert response.status_code == 200
 
     def test_cidr_range_allows_multiple_ips(self):
         """Test that CIDR range allows all IPs in the range."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=["10.0.0.0/8"]
+            allowed_cidrs=["10.0.0.0/8"],
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
         # All these should be allowed
         for ip in ["10.0.0.1", "10.255.255.255", "10.128.64.32"]:
-            response = client.get("/", headers={"X-Forwarded-For": ip})
+            with patch("voice_mode.serve_middleware.get_client_ip", return_value=ip):
+                response = client.get("/", headers={"X-Forwarded-For": ip})
             assert response.status_code == 200, f"IP {ip} should be allowed"
 
     def test_ipv6_allowed(self):
         """Test IPv6 address in allowlist."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=["::1/128", "2001:db8::/32"]
+            allowed_cidrs=["::1/128", "2001:db8::/32"],
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
-        response = client.get("/", headers={"X-Forwarded-For": "::1"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="::1"):
+            response = client.get("/", headers={"X-Forwarded-For": "::1"})
         assert response.status_code == 200
 
-        response = client.get("/", headers={"X-Forwarded-For": "2001:db8::1"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="2001:db8::1"):
+            response = client.get("/", headers={"X-Forwarded-For": "2001:db8::1"})
         assert response.status_code == 200
 
     def test_ipv6_denied(self):
         """Test IPv6 address not in allowlist."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=["::1/128"]
+            allowed_cidrs=["::1/128"],
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
-        response = client.get("/", headers={"X-Forwarded-For": "2001:db8::1"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="2001:db8::1"):
+            response = client.get("/", headers={"X-Forwarded-For": "2001:db8::1"})
         assert response.status_code == 403
 
     def test_empty_allowlist_denies_all(self):
         """Test that empty allowlist denies all IPs."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=[]
+            allowed_cidrs=[],
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
         for ip in ["127.0.0.1", "192.168.1.1", "8.8.8.8"]:
-            response = client.get("/", headers={"X-Forwarded-For": ip})
+            with patch("voice_mode.serve_middleware.get_client_ip", return_value=ip):
+                response = client.get("/", headers={"X-Forwarded-For": ip})
             assert response.status_code == 403, f"IP {ip} should be denied with empty allowlist"
 
     def test_anthropic_cidrs_allowed(self):
         """Test that Anthropic CIDRs work correctly."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=ANTHROPIC_CIDRS
+            allowed_cidrs=ANTHROPIC_CIDRS,
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
         # IP in Anthropic's primary range
-        response = client.get("/", headers={"X-Forwarded-For": "160.79.104.100"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="160.79.104.100"):
+            response = client.get("/", headers={"X-Forwarded-For": "160.79.104.100"})
         assert response.status_code == 200
 
         # Legacy Anthropic IP
-        response = client.get("/", headers={"X-Forwarded-For": "35.193.26.195"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="35.193.26.195"):
+            response = client.get("/", headers={"X-Forwarded-For": "35.193.26.195"})
         assert response.status_code == 200
 
         # Not an Anthropic IP
-        response = client.get("/", headers={"X-Forwarded-For": "8.8.8.8"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="8.8.8.8"):
+            response = client.get("/", headers={"X-Forwarded-For": "8.8.8.8"})
         assert response.status_code == 403
 
     def test_combined_local_and_anthropic_cidrs(self):
         """Test combined LOCAL_CIDRS and ANTHROPIC_CIDRS."""
         app = create_app_with_middleware(
             IPAllowlistMiddleware,
-            allowed_cidrs=LOCAL_CIDRS + ANTHROPIC_CIDRS
+            allowed_cidrs=LOCAL_CIDRS + ANTHROPIC_CIDRS,
+            trusted_proxy_cidrs=["testclient"],
         )
         client = TestClient(app)
 
         # Local IP
-        response = client.get("/", headers={"X-Forwarded-For": "192.168.1.100"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="192.168.1.100"):
+            response = client.get("/", headers={"X-Forwarded-For": "192.168.1.100"})
         assert response.status_code == 200
 
         # Anthropic IP
-        response = client.get("/", headers={"X-Forwarded-For": "160.79.105.50"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="160.79.105.50"):
+            response = client.get("/", headers={"X-Forwarded-For": "160.79.105.50"})
         assert response.status_code == 200
 
         # External IP
-        response = client.get("/", headers={"X-Forwarded-For": "8.8.8.8"})
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="8.8.8.8"):
+            response = client.get("/", headers={"X-Forwarded-For": "8.8.8.8"})
         assert response.status_code == 403
+
+    def test_spoofed_x_forwarded_for_denied_without_trusted_proxy(self):
+        """Clients must not be able to spoof allowed IPs with X-Forwarded-For."""
+        app = create_app_with_middleware(
+            IPAllowlistMiddleware,
+            allowed_cidrs=["203.0.113.0/24"],
+        )
+        client = TestClient(app)
+
+        response = client.get("/", headers={"X-Forwarded-For": "203.0.113.50"})
+        assert response.status_code == 403
+
+    def test_trusted_proxy_allows_forwarded_client_ip(self):
+        """Forwarded client IP is accepted when request comes from a trusted proxy."""
+        scope = {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "headers": [(b"x-forwarded-for", b"203.0.113.50")],
+            "client": ("10.1.2.3", 12345),
+            "scheme": "http",
+            "server": ("testserver", 80),
+            "query_string": b"",
+            "http_version": "1.1",
+        }
+
+        request = Request(scope)
+        assert get_client_ip(request, trusted_proxy_cidrs=["10.0.0.0/8"]) == "203.0.113.50"
 
 
 # =============================================================================
@@ -609,36 +713,38 @@ class TestMiddlewareCombinations:
     def test_ip_allowlist_and_token_both_pass(self):
         """Test that both IP and token must be valid."""
         app = create_app_with_multiple_middleware([
-            (IPAllowlistMiddleware, {"allowed_cidrs": ["192.168.0.0/16"]}),
+            (IPAllowlistMiddleware, {"allowed_cidrs": ["192.168.0.0/16"], "trusted_proxy_cidrs": ["testclient"]}),
             (TokenAuthMiddleware, {"token": "my-token"}),
         ])
         client = TestClient(app)
 
         # Both valid - should work
-        response = client.get(
-            "/",
-            headers={
-                "X-Forwarded-For": "192.168.1.100",
-                "Authorization": "Bearer my-token"
-            }
-        )
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="192.168.1.100"):
+            response = client.get(
+                "/",
+                headers={
+                    "X-Forwarded-For": "192.168.1.100",
+                    "Authorization": "Bearer my-token"
+                }
+            )
         assert response.status_code == 200
 
     def test_ip_allowed_but_token_invalid(self):
         """Test that valid IP but invalid token fails."""
         app = create_app_with_multiple_middleware([
-            (IPAllowlistMiddleware, {"allowed_cidrs": ["192.168.0.0/16"]}),
+            (IPAllowlistMiddleware, {"allowed_cidrs": ["192.168.0.0/16"], "trusted_proxy_cidrs": ["testclient"]}),
             (TokenAuthMiddleware, {"token": "correct-token"}),
         ])
         client = TestClient(app)
 
-        response = client.get(
-            "/",
-            headers={
-                "X-Forwarded-For": "192.168.1.100",
-                "Authorization": "Bearer wrong-token"
-            }
-        )
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="192.168.1.100"):
+            response = client.get(
+                "/",
+                headers={
+                    "X-Forwarded-For": "192.168.1.100",
+                    "Authorization": "Bearer wrong-token"
+                }
+            )
         assert response.status_code == 401
 
     def test_token_valid_but_ip_denied(self):
@@ -661,67 +767,83 @@ class TestMiddlewareCombinations:
     def test_ip_allowlist_and_secret_path(self):
         """Test IP allowlist combined with secret path."""
         app = create_app_with_multiple_middleware([
-            (IPAllowlistMiddleware, {"allowed_cidrs": ["10.0.0.0/8"]}),
+            (IPAllowlistMiddleware, {"allowed_cidrs": ["10.0.0.0/8"], "trusted_proxy_cidrs": ["testclient"]}),
             (SecretPathMiddleware, {"secret": "my-secret", "base_path": "/sse"}),
         ])
         client = TestClient(app)
 
         # Both valid
-        response = client.get(
-            "/sse/my-secret",
-            headers={"X-Forwarded-For": "10.1.2.3"}
-        )
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="10.1.2.3"):
+            response = client.get(
+                "/sse/my-secret",
+                headers={"X-Forwarded-For": "10.1.2.3"}
+            )
         assert response.status_code == 200
 
         # IP valid, wrong secret
-        response = client.get(
-            "/sse/wrong-secret",
-            headers={"X-Forwarded-For": "10.1.2.3"}
-        )
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="10.1.2.3"):
+            response = client.get(
+                "/sse/wrong-secret",
+                headers={"X-Forwarded-For": "10.1.2.3"}
+            )
         assert response.status_code == 404
 
         # Secret valid, IP denied
-        response = client.get(
-            "/sse/my-secret",
-            headers={"X-Forwarded-For": "8.8.8.8"}
-        )
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="8.8.8.8"):
+            response = client.get(
+                "/sse/my-secret",
+                headers={"X-Forwarded-For": "8.8.8.8"}
+            )
         assert response.status_code == 403
 
     def test_all_three_middlewares(self):
         """Test all three middlewares together."""
         app = create_app_with_multiple_middleware([
-            (IPAllowlistMiddleware, {"allowed_cidrs": LOCAL_CIDRS}),
+            (IPAllowlistMiddleware, {"allowed_cidrs": LOCAL_CIDRS, "trusted_proxy_cidrs": ["testclient"]}),
             (SecretPathMiddleware, {"secret": "secret123", "base_path": "/sse"}),
             (TokenAuthMiddleware, {"token": "token456"}),
         ])
         client = TestClient(app)
 
         # All valid
-        response = client.get(
-            "/sse/secret123",
-            headers={
-                "X-Forwarded-For": "127.0.0.1",
-                "Authorization": "Bearer token456"
-            }
-        )
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="127.0.0.1"):
+            response = client.get(
+                "/sse/secret123",
+                headers={
+                    "X-Forwarded-For": "127.0.0.1",
+                    "Authorization": "Bearer token456"
+                }
+            )
         assert response.status_code == 200
 
         # Non-protected path still needs IP and token
-        response = client.get(
-            "/",
-            headers={
-                "X-Forwarded-For": "127.0.0.1",
-                "Authorization": "Bearer token456"
-            }
-        )
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="127.0.0.1"):
+            response = client.get(
+                "/",
+                headers={
+                    "X-Forwarded-For": "127.0.0.1",
+                    "Authorization": "Bearer token456"
+                }
+            )
         assert response.status_code == 200
 
         # Protected path without secret
-        response = client.get(
-            "/sse",
-            headers={
-                "X-Forwarded-For": "127.0.0.1",
-                "Authorization": "Bearer token456"
-            }
-        )
+        with patch("voice_mode.serve_middleware.get_client_ip", return_value="127.0.0.1"):
+            response = client.get(
+                "/sse",
+                headers={
+                    "X-Forwarded-For": "127.0.0.1",
+                    "Authorization": "Bearer token456"
+                }
+            )
         assert response.status_code == 404
+
+
+class TestAccessLogRedaction:
+    def test_redacts_secret_path(self):
+        assert redact_request_path("/mcp/my-secret") == "/mcp/<redacted>"
+        assert redact_request_path("/sse/my-secret") == "/sse/<redacted>"
+
+    def test_preserves_non_secret_paths(self):
+        assert redact_request_path("/mcp") == "/mcp"
+        assert redact_request_path("/other/path") == "/other/path"

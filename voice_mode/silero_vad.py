@@ -9,6 +9,7 @@ probability score between 0 and 1 indicating likelihood of speech.
 
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -34,6 +35,68 @@ AGGRESSIVENESS_THRESHOLDS = {
     2: 0.7,
     3: 0.85,
 }
+
+@dataclass(frozen=True)
+class StopPolicy:
+    """Explicit recording stop policy shared by realtime and local STT."""
+
+    max_duration: float = 120.0
+    min_duration: float = 3.0
+    disable_silence_detection: bool = False
+    vad_aggressiveness: int = 1
+    vad_probability_threshold: float = 0.75
+    realtime_silence_threshold_secs: float = 3.0
+    local_silence_threshold_ms: int = 500
+    local_vad_probability_threshold: float = 0.5
+
+    @property
+    def silence_detection_enabled(self) -> bool:
+        return not self.disable_silence_detection
+
+
+def build_stop_policy(
+    *,
+    max_duration: float = 120.0,
+    min_duration: float = 3.0,
+    disable_silence_detection: bool = False,
+    vad_aggressiveness: Optional[int] = None,
+    local_silence_threshold_ms: int = 500,
+) -> StopPolicy:
+    """Build the canonical stop policy for one listening session.
+
+    Realtime keeps the Osaurus-style thresholds already used by the WebSocket
+    path, while local recording keeps its existing Silero/WebRTC threshold map.
+    """
+    effective_aggressiveness = vad_aggressiveness if vad_aggressiveness is not None else 1
+    effective_aggressiveness = max(0, min(3, effective_aggressiveness))
+    local_vad_probability_threshold = AGGRESSIVENESS_THRESHOLDS.get(
+        effective_aggressiveness, 0.5
+    )
+    if disable_silence_detection:
+        return StopPolicy(
+            max_duration=max_duration,
+            min_duration=min_duration,
+            disable_silence_detection=True,
+            vad_aggressiveness=effective_aggressiveness,
+            vad_probability_threshold=0.3,
+            realtime_silence_threshold_secs=max_duration,
+            local_silence_threshold_ms=local_silence_threshold_ms,
+            local_vad_probability_threshold=local_vad_probability_threshold,
+        )
+
+    realtime_threshold_map = {0: 0.55, 1: 0.75, 2: 0.75, 3: 0.85}
+    realtime_silence_map = {0: 4.0, 1: 3.0, 2: 2.0, 3: 1.0}
+    return StopPolicy(
+        max_duration=max_duration,
+        min_duration=min_duration,
+        disable_silence_detection=False,
+        vad_aggressiveness=effective_aggressiveness,
+        vad_probability_threshold=realtime_threshold_map.get(effective_aggressiveness, 0.75),
+        realtime_silence_threshold_secs=realtime_silence_map.get(effective_aggressiveness, 2.0),
+        local_silence_threshold_ms=local_silence_threshold_ms,
+        local_vad_probability_threshold=local_vad_probability_threshold,
+    )
+
 
 
 class SileroVAD:

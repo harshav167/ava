@@ -1,10 +1,9 @@
 """Shared fixtures for DJ module tests."""
 
-from unittest.mock import Mock
 
 import pytest
 
-from voice_mode.dj import CommandResult, MpvBackend, MpvPlayer
+from voice_mode.dj import CommandResult, MpvPlayer
 from voice_mode.dj.controller import DJController
 
 

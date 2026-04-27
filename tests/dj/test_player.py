@@ -1,8 +1,7 @@
 """Tests for the MpvPlayer class."""
 
-import pytest
 
-from voice_mode.dj import CommandResult, MpvPlayer
+from voice_mode.dj import CommandResult
 
 
 class TestMpvPlayerConnection:

@@ -1,7 +1,6 @@
 """Tests for the Music For Programming service module."""
 
 import pytest
-from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
@@ -10,7 +9,6 @@ from voice_mode.dj.mfp import (
     HttpFetcher,
     MfpEpisode,
     MfpService,
-    RssFetcher,
 )
 
 

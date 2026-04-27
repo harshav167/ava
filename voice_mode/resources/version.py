@@ -31,7 +31,7 @@ async def get_version_info() -> str:
                     lines.append("Installation: Development (editable)")
                 else:
                     lines.append("Installation: Package")
-        except:
+        except Exception:
             pass
     else:
         lines.append("Installation: Package (no git)")

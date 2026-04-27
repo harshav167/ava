@@ -1,6 +1,6 @@
 """Type definitions for transcription module."""
 
-from typing import TypedDict, List, Optional, Literal
+from typing import TypedDict, List, Optional
 from enum import Enum
 
 

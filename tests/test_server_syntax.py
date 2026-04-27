@@ -11,7 +11,6 @@ These tests ensure the voice-mode server module:
 import ast
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 import pytest
 

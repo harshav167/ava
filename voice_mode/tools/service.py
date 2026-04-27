@@ -14,15 +14,10 @@ import psutil
 from fastmcp import Context
 
 from voice_mode.server import mcp
-from voice_mode.config import SERVICE_AUTO_ENABLE
 from voice_mode.utils.services.common import find_process_by_port, check_service_status
 
 # Default port for VoiceMode serve command (HTTP MCP server)
 VOICEMODE_SERVE_PORT = 8765
-
-# Legacy stubs for removed services
-WHISPER_PORT = 0
-KOKORO_PORT = 0
 
 logger = logging.getLogger("voicemode")
 
@@ -39,9 +34,7 @@ def get_service_config_vars(service_name: str) -> Dict[str, Any]:
     voicemode_dir = os.path.expanduser(os.environ.get("VOICEMODE_BASE_DIR", "~/.voicemode"))
     home = os.path.expanduser("~")
 
-    if service_name in ("whisper", "kokoro"):
-        raise ValueError(f"Service '{service_name}' has been removed. Use ElevenLabs directly.")
-    elif service_name == "voicemode":
+    if service_name == "voicemode":
         # VoiceMode serve service - runs the HTTP MCP server
         start_script = os.path.join(voicemode_dir, "services", "voicemode", "bin", "start-voicemode-serve.sh")
 
@@ -64,8 +57,7 @@ def get_service_config_vars(service_name: str) -> Dict[str, Any]:
 async def install_voicemode_start_script() -> Dict[str, Any]:
     """Install the VoiceMode start script to the expected location.
 
-    Unlike whisper/kokoro which require compilation, voicemode is built into
-    the package. This function copies the start script template to the
+    Copies the start script template to the
     ~/.voicemode/services/voicemode/bin/ directory.
 
     Returns:
@@ -189,7 +181,7 @@ def create_service_file(service_name: str) -> tuple[Path, str]:
     Templates are simplified - start scripts handle config via voicemode.env.
 
     Args:
-        service_name: Name of the service (whisper, kokoro, voicemode)
+        service_name: Name of the service (voicemode, connect)
 
     Returns:
         Tuple of (destination_path, file_content)
@@ -271,9 +263,7 @@ async def status_service(service_name: str) -> str:
             return "❌ Connect is not available (no credentials - run: voicemode connect login)"
         return "\n\n".join(parts)
     else:
-        if service_name in ("whisper", "kokoro"):
-            return f"❌ {service_name.capitalize()} has been removed. Use ElevenLabs directly."
-        elif service_name == "voicemode":
+        if service_name == "voicemode":
             port = VOICEMODE_SERVE_PORT
             process_name = None
         else:
@@ -332,7 +322,7 @@ async def status_service(service_name: str) -> str:
             try:
                 from voice_mode.version import __version__
                 extra_info_parts.append(f"Version: {__version__}")
-            except:
+            except Exception:
                 pass
         elif service_name == "connect":
             # VoiceMode Connect info (WebSocket client, no port)
@@ -341,7 +331,7 @@ async def status_service(service_name: str) -> str:
             try:
                 from voice_mode.version import __version__
                 extra_info_parts.append(f"Version: {__version__}")
-            except:
+            except Exception:
                 pass
 
         extra_info = ""
@@ -364,9 +354,6 @@ async def status_service(service_name: str) -> str:
 
 async def start_service(service_name: str) -> str:
     """Start a service."""
-    if service_name in ("whisper", "kokoro"):
-        return f"❌ {service_name.capitalize()} has been removed. Use ElevenLabs directly."
-
     # Check if already running - connect uses process detection, others use port
     if service_name == "connect":
         if find_connect_process():
@@ -496,9 +483,6 @@ async def start_service(service_name: str) -> str:
 
 async def stop_service(service_name: str) -> str:
     """Stop a service."""
-    if service_name in ("whisper", "kokoro"):
-        return f"❌ {service_name.capitalize()} has been removed. Use ElevenLabs directly."
-
     # Connect uses process detection, others use port
     if service_name == "connect":
         port = None
@@ -748,13 +732,11 @@ async def view_logs(service_name: str, lines: Optional[int] = None) -> str:
             # Use log show command
             if service_name == "voicemode":
                 process_name = "voicemode-serve"
-            elif service_name == "connect":
-                process_name = "voicemode"  # connect runs as "voicemode connect up"
             else:
-                process_name = f"{service_name}-server"
+                process_name = "voicemode"  # connect runs as "voicemode connect up"
             cmd = [
                 "log", "show",
-                "--predicate", f'process == "{process_name}" OR process == "kokoro-fastapi"',
+                "--predicate", f'process == "{process_name}"',
                 "--last", f"{lines}",
                 "--style", "compact"
             ]
@@ -814,17 +796,17 @@ async def view_logs(service_name: str, lines: Optional[int] = None) -> str:
 
 @mcp.tool()
 async def service(
-    service_name: Literal["whisper", "kokoro", "voicemode", "connect"],
+    service_name: Literal["voicemode", "connect"],
     action: Literal["status", "start", "stop", "restart", "enable", "disable", "logs"] = "status",
     lines: Optional[Union[int, str]] = None,
     ctx: Optional[Context] = None
 ) -> str:
     """Unified service management tool for voice mode services.
 
-    Manage Whisper (STT), Kokoro (TTS), VoiceMode (HTTP MCP server), and Connect services.
+    Manage VoiceMode (HTTP MCP server) and Connect services.
 
     Args:
-        service_name: The service to manage ("whisper", "kokoro", "voicemode", or "connect")
+        service_name: The service to manage ("voicemode" or "connect")
         action: The action to perform (default: "status")
             - status: Show if service is running and resource usage
             - start: Start the service
@@ -839,11 +821,9 @@ async def service(
         Status message indicating the result of the action
 
     Examples:
-        service("whisper", "status")  # Check if Whisper is running
-        service("kokoro", "start")    # Start Kokoro service
-        service("voicemode", "start") # Start VoiceMode HTTP MCP server
-        service("connect", "enable")  # Enable Connect service for remote voice
-        service("whisper", "logs", 100)  # View last 100 lines of Whisper logs
+        service("voicemode", "start")  # Start VoiceMode HTTP MCP server
+        service("connect", "enable")   # Enable Connect service for remote voice
+        service("voicemode", "logs", 100)  # View last 100 lines of VoiceMode logs
     """
     # Send status info to MCP client if Context is available
     if ctx is not None:
@@ -879,68 +859,4 @@ async def service(
         return f"❌ Unknown action: {action}"
 
 
-async def install_service(service_name: str) -> Dict[str, Any]:
-    """Install service files for a service."""
-    try:
-        system = platform.system()
-        config_vars = get_service_config_vars(service_name)
 
-        # Load template
-        template_content = load_service_template(service_name)
-
-        # Replace placeholders
-        for key, value in config_vars.items():
-            template_content = template_content.replace(f"{{{key}}}", str(value))
-
-        # Map service name to file name (voicemode uses "serve" in file names)
-        file_name = "serve" if service_name == "voicemode" else service_name
-
-        if system == "Darwin":
-            # Install launchd plist
-            plist_path = Path.home() / "Library" / "LaunchAgents" / f"com.voicemode.{file_name}.plist"
-            plist_path.parent.mkdir(parents=True, exist_ok=True)
-            plist_path.write_text(template_content)
-            return {"success": True, "service_file": str(plist_path)}
-        else:
-            # Install systemd service
-            service_path = Path.home() / ".config" / "systemd" / "user" / f"voicemode-{file_name}.service"
-            service_path.parent.mkdir(parents=True, exist_ok=True)
-            service_path.write_text(template_content)
-
-            # Reload systemd
-            subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-            return {"success": True, "service_file": str(service_path)}
-
-    except Exception as e:
-        logger.error(f"Error installing service {service_name}: {e}")
-        return {"success": False, "error": str(e)}
-
-
-async def uninstall_service(service_name: str) -> Dict[str, Any]:
-    """Remove service files for a service."""
-    try:
-        system = platform.system()
-
-        # Map service name to file name (voicemode uses "serve" in file names)
-        file_name = "serve" if service_name == "voicemode" else service_name
-
-        if system == "Darwin":
-            plist_path = Path.home() / "Library" / "LaunchAgents" / f"com.voicemode.{file_name}.plist"
-            if plist_path.exists():
-                plist_path.unlink()
-                return {"success": True, "message": f"Removed {plist_path}"}
-            else:
-                return {"success": True, "message": "Service file not found"}
-        else:
-            service_path = Path.home() / ".config" / "systemd" / "user" / f"voicemode-{file_name}.service"
-            if service_path.exists():
-                service_path.unlink()
-                # Reload systemd
-                subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-                return {"success": True, "message": f"Removed {service_path}"}
-            else:
-                return {"success": True, "message": "Service file not found"}
-
-    except Exception as e:
-        logger.error(f"Error uninstalling service {service_name}: {e}")
-        return {"success": False, "error": str(e)}

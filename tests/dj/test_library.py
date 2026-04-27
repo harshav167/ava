@@ -8,7 +8,6 @@ from voice_mode.dj.library import (
     MusicLibrary,
     Track,
     LibraryStats,
-    FileScanner,
     SUPPORTED_EXTENSIONS,
 )
 
@@ -147,7 +146,7 @@ class TestMusicLibraryInit:
         """Test that database schema is created."""
         import sqlite3
 
-        library = MusicLibrary(db_path=temp_db)
+        MusicLibrary(db_path=temp_db)
 
         with sqlite3.connect(temp_db) as conn:
             cursor = conn.cursor()

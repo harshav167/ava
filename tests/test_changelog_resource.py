@@ -1,8 +1,6 @@
 """Tests for the changelog resource."""
 
-import pytest
-from unittest.mock import patch, mock_open
-from pathlib import Path
+from unittest.mock import patch
 
 from voice_mode.resources.changelog import changelog_resource
 

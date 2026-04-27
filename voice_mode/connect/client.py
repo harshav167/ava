@@ -12,7 +12,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from . import config as connect_config
 from .messaging import deliver_message
@@ -20,6 +20,15 @@ from .types import ConnectState
 from .users import UserManager
 
 logger = logging.getLogger("voicemode")
+
+CredentialsProvider = Callable[[], object]
+
+
+async def default_credentials_provider():
+    """Load valid Connect credentials via the existing auth subsystem."""
+    from voice_mode.auth import get_valid_credentials
+
+    return await asyncio.to_thread(get_valid_credentials, auto_refresh=True)
 
 
 @dataclass
@@ -97,8 +106,13 @@ class ConnectClient:
     to user inboxes via the messaging module.
     """
 
-    def __init__(self, user_manager: UserManager):
+    def __init__(
+        self,
+        user_manager: UserManager,
+        credentials_provider: Optional[CredentialsProvider] = None,
+    ):
         self.user_manager = user_manager
+        self.credentials_provider = credentials_provider or default_credentials_provider
         self.state = ConnectState.DISCONNECTED
         self._ws = None
         self._session_id: Optional[str] = None
@@ -152,11 +166,8 @@ class ConnectClient:
             logger.debug("Connect client disabled by config")
             return
 
-        # Check credentials (synchronous call, run in thread)
         try:
-            from voice_mode.auth import get_valid_credentials
-
-            creds = await asyncio.to_thread(get_valid_credentials, auto_refresh=True)
+            creds = await self.credentials_provider()
         except Exception as e:
             self._status_message = (
                 f"Auth error: {e}\n"
@@ -227,23 +238,44 @@ class ConnectClient:
         if not self._ws or not self.is_connected:
             return
 
-        # Only announce this agent's registered user
         if self._primary_user:
             user = self.user_manager.get(self._primary_user.name)
             users = [user] if user else []
         else:
-            # No user registered yet — don't announce anyone
             users = []
 
-        # Build user list for the new protocol
+        try:
+            await self.send_presence_update(users)
+            logger.info(
+                f"Connect client: capabilities_update sent ({len(users)} user(s))"
+            )
+        except Exception as e:
+            logger.warning(f"Connect client: failed to send capabilities_update: {e}")
+
+    async def send_presence_update(self, users: list, presence: Optional[str] = None) -> None:
+        """Send a presence update for the supplied users.
+
+        Args:
+            users: Users owned by this agent/session.
+            presence: Optional effective presence override. When omitted,
+                presence is computed from the local user manager state.
+        """
+        if not self._ws:
+            return
+
         user_entries = []
         for user in users:
-            presence = self.user_manager.get_presence(user.name)
+            wire_presence = presence
+            if wire_presence is None:
+                wire_presence = self.user_manager.get_presence(user.name).value
+            elif wire_presence != "available":
+                # The gateway displays non-available online users as amber/away.
+                wire_presence = "online"
             user_entries.append({
                 "name": user.name,
                 "host": user.host,
                 "display_name": user.display_name,
-                "presence": presence.value,
+                "presence": wire_presence,
             })
 
         msg = {
@@ -251,15 +283,7 @@ class ConnectClient:
             "users": user_entries,
             "platform": "claude-code",
         }
-
-        try:
-            await self._ws.send(json.dumps(msg))
-            logger.info(
-                f"Connect client: capabilities_update sent "
-                f"({len(user_entries)} user(s))"
-            )
-        except Exception as e:
-            logger.warning(f"Connect client: failed to send capabilities_update: {e}")
+        await self._ws.send(json.dumps(msg))
 
     async def _connection_loop(self):
         """Main WebSocket connection loop with auto-reconnect."""
@@ -275,13 +299,8 @@ class ConnectClient:
 
         while True:
             try:
-                # Get fresh credentials for each connection attempt
-                from voice_mode.auth import get_valid_credentials
-
                 self.state = ConnectState.CONNECTING
-                creds = await asyncio.to_thread(
-                    get_valid_credentials, auto_refresh=True
-                )
+                creds = await self.credentials_provider()
                 if creds is None:
                     self._status_message = (
                         "Not connected (credentials expired)\n"

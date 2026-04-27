@@ -1,9 +1,4 @@
 """Unit tests for the config edit CLI command."""
-import pytest
-import tempfile
-import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock, call
 from click.testing import CliRunner
 from voice_mode.cli import voice_mode_main_cli
 
@@ -40,4 +35,3 @@ class TestConfigEditCommand:
 
 
 # Import needed for subprocess mock
-import subprocess

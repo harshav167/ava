@@ -1,7 +1,6 @@
 """Helper functions for kokoro service management."""
 
 import platform
-import subprocess
 from pathlib import Path
 from typing import Optional
 

@@ -1,10 +1,6 @@
 """Tests for version detection functionality."""
 
-import os
-import tempfile
-from pathlib import Path
 from unittest.mock import patch, MagicMock
-import pytest
 
 from voice_mode.version import (
     get_git_commit_hash,

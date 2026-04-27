@@ -1,12 +1,10 @@
 """Statistics tools for voice conversation tracking and dashboard."""
 
 import json
-import time
-from typing import Optional
 from datetime import datetime
 
 from ..server import mcp
-from ..statistics import get_statistics_tracker, track_conversation
+from ..statistics import get_statistics_tracker
 from ..config import logger
 
 

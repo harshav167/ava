@@ -4,7 +4,7 @@ import subprocess
 import platform
 import os
 import logging
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 
 logger = logging.getLogger("voicemode")
 

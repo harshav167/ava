@@ -17,18 +17,18 @@ async def voice_mode_info() -> str:
     Shows version, configuration, and provider status to help debug issues.
     """
     info = []
-    info.append(f"Voice Mode Diagnostics")
-    info.append(f"====================")
+    info.append("Voice Mode Diagnostics")
+    info.append("====================")
     info.append(f"Version: {__version__}")
     info.append(f"Working Directory: {os.getcwd()}")
     info.append(f"Python Executable: {os.sys.executable}")
     
-    info.append(f"\nConfiguration:")
+    info.append("\nConfiguration:")
     info.append(f"  TTS_VOICES: {TTS_VOICES}")
     info.append(f"  TTS_BASE_URLS: {TTS_BASE_URLS}")
     info.append(f"  TTS_MODELS: {TTS_MODELS}")
     
-    info.append(f"\nProvider Registry:")
+    info.append("\nProvider Registry:")
     await provider_registry.initialize()
     
     for service_type in ["tts", "stt"]:
@@ -44,7 +44,7 @@ async def voice_mode_info() -> str:
     try:
         from voice_mode.providers import get_tts_client_and_voice
         client, voice, model, endpoint = await get_tts_client_and_voice()
-        info.append(f"\nDefault TTS Selection:")
+        info.append("\nDefault TTS Selection:")
         info.append(f"  Provider: {endpoint.provider_type}")
         info.append(f"  URL: {endpoint.base_url}")
         info.append(f"  Voice: {voice}")

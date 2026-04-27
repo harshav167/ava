@@ -5,7 +5,6 @@ voice_mode/elevenlabs_client.py::elevenlabs_stt_batch.
 """
 
 import io
-import pytest
 from unittest.mock import MagicMock, patch
 
 
@@ -215,3 +214,106 @@ class TestElevenLabsSTTWrapper:
 
         assert result["error_type"] == "connection_failed"
         assert "Server error 500" in result["attempted_endpoints"][0]["error"]
+
+
+# ---------------------------------------------------------------------------
+# SpeechService boundary
+# ---------------------------------------------------------------------------
+
+class TestSpeechServiceListenBoundary:
+    """Batch and realtime STT route through the speech service boundary."""
+
+    async def test_listen_uses_batch_adapter_when_audio_file_present(self):
+        from voice_mode.provider_discovery import EndpointInfo
+        from voice_mode.voice_provider import ListenOptions, SpeechService
+
+        class FakeRegistry:
+            def __init__(self):
+                self.initialized = False
+                self.endpoint = EndpointInfo(
+                    base_url="elevenlabs://stt",
+                    models=["scribe_v2"],
+                    voices=[],
+                    provider_type="elevenlabs",
+                )
+
+            async def initialize(self):
+                self.initialized = True
+
+            def find_endpoint_with_model(self, service_type, model):
+                return self.endpoint if service_type == "stt" and model == "scribe_v2" else None
+
+            def get_endpoints(self, service_type):
+                return [self.endpoint] if service_type == "stt" else []
+
+        class FakeProvider:
+            def __init__(self):
+                self.batch_kwargs = None
+
+            async def batch_stt(self, **kwargs):
+                self.batch_kwargs = kwargs
+                return {"text": "batch text", "provider": "elevenlabs"}
+
+        audio_file = _audio_file()
+        registry = FakeRegistry()
+        provider = FakeProvider()
+        service = SpeechService(provider=provider, registry=registry)
+
+        result = await service.listen(ListenOptions(audio_file=audio_file))
+
+        assert registry.initialized is True
+        assert result["text"] == "batch text"
+        assert provider.batch_kwargs["audio_file"] is audio_file
+        assert provider.batch_kwargs["model"] == "scribe_v2"
+        assert provider.batch_kwargs["base_url"] == "elevenlabs://stt"
+
+    async def test_listen_uses_realtime_adapter_without_audio_file(self):
+        from voice_mode.provider_discovery import EndpointInfo
+        from voice_mode.voice_provider import ListenOptions, SpeechService
+
+        class FakeRegistry:
+            endpoint = EndpointInfo(
+                base_url="elevenlabs://stt",
+                models=["scribe_v2_realtime"],
+                voices=[],
+                provider_type="elevenlabs",
+            )
+
+            async def initialize(self):
+                pass
+
+            def find_endpoint_with_model(self, service_type, model):
+                return self.endpoint if service_type == "stt" and model == "scribe_v2_realtime" else None
+
+            def get_endpoints(self, service_type):
+                return [self.endpoint] if service_type == "stt" else []
+
+        class FakeProvider:
+            def __init__(self):
+                self.realtime_kwargs = None
+
+            async def realtime_stt(self, **kwargs):
+                self.realtime_kwargs = kwargs
+                return {"text": "realtime text", "provider": "elevenlabs"}
+
+        provider = FakeProvider()
+        service = SpeechService(provider=provider, registry=FakeRegistry())
+
+        result = await service.listen(
+            ListenOptions(
+                max_duration=5,
+                min_duration=2,
+                language_code="en",
+                vad_aggressiveness=2,
+                previous_text="hello",
+            )
+        )
+
+        assert result["text"] == "realtime text"
+        assert provider.realtime_kwargs["model"] == "scribe_v2_realtime"
+        assert provider.realtime_kwargs["base_url"] == "elevenlabs://stt"
+        assert provider.realtime_kwargs["max_duration"] == 5
+        assert provider.realtime_kwargs["min_duration"] == 2
+        assert provider.realtime_kwargs["language_code"] == "en"
+        assert provider.realtime_kwargs["vad_aggressiveness"] == 2
+        assert provider.realtime_kwargs["previous_text"] == "hello"

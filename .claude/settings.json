@@ -1,3 +1,21 @@
 {
-  "hooks": {}
+  "mcpServers": {
+    "voicemode": {
+      "type": "http",
+      "url": "http://127.0.0.1:8765/mcp"
+    }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; case \"$f\" in *.py) ruff format \"$f\" ;; esac; } 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
 }

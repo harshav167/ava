@@ -157,7 +157,7 @@ def download_with_progress(
         return False
     except KeyboardInterrupt:
         if not quiet:
-            click.echo(f"\n❌ Download interrupted by user", err=True)
+            click.echo("\n❌ Download interrupted by user", err=True)
         # Clean up partial file
         if destination.exists():
             destination.unlink()

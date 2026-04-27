@@ -1,15 +1,18 @@
 """Tests for VoiceMode Connect file-watcher."""
 
 import asyncio
-import json
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from voice_mode.connect.types import ConnectState
 from voice_mode.connect.users import UserManager
-from voice_mode.connect.watcher import diff_user_state, watch_user_changes
+from voice_mode.connect.watcher import (
+    UserChangeEvent,
+    diff_user_state,
+    format_user_change_event,
+    user_state_events,
+    watch_user_changes,
+)
 
 
 @pytest.fixture
@@ -128,6 +131,17 @@ class TestDiffUserState:
         changes = diff_user_state(prev, curr)
         assert len(changes) == 1
         assert changes[0] == ("changed", "cora", None)
+
+
+class TestUserChangeEvents:
+    def test_emits_typed_events(self):
+        prev = {"cora": {"display_name": "Cora", "symlink_target": None, "subscribed": False}}
+        curr = {"cora": {"display_name": "Cora", "symlink_target": "/path", "subscribed": True}}
+
+        events = user_state_events(prev, curr)
+
+        assert events == [UserChangeEvent("subscribed", "cora", None)]
+        assert format_user_change_event(events[0]) == "  ^ cora now available (subscribed)"
 
 
 class TestWatchUserChanges:

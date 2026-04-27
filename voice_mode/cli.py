@@ -24,6 +24,7 @@ from voice_mode.config import (
     SERVE_ALLOW_ANTHROPIC,
     SERVE_ALLOW_TAILSCALE,
     SERVE_ALLOWED_IPS,
+    SERVE_TRUSTED_PROXIES,
     SERVE_SECRET,
     SERVE_TOKEN,
     SERVE_TRANSPORT,
@@ -33,7 +34,7 @@ from voice_mode.config import (
 # Suppress known deprecation warnings for better user experience
 # These apply to both CLI commands and MCP server operation
 # They can be shown with VOICEMODE_DEBUG=true or --debug flag
-if not os.environ.get('VOICEMODE_DEBUG', '').lower() in ('true', '1', 'yes'):
+if os.environ.get('VOICEMODE_DEBUG', '').lower() not in ('true', '1', 'yes'):
     # Suppress audioop deprecation warning from pydub
     warnings.filterwarnings('ignore', message='.*audioop.*deprecated.*', category=DeprecationWarning)
     # webrtcvad-wheels uses importlib.metadata, no pkg_resources warning to suppress
@@ -353,21 +354,11 @@ def service_install(service_name, force):
         raise click.ClickException("Kokoro has been removed. VoiceMode now uses ElevenLabs exclusively.")
     elif service_name == '_legacy_kokoro':
         raise click.ClickException("Kokoro is not supported. Use ElevenLabs instead.")
-        result = asyncio.run(kokoro_install.fn(force_reinstall=force))
-        if isinstance(result, dict):
-            if result.get("success"):
-                click.echo(f"✅ Kokoro installed successfully")
-                if result.get('install_path'):
-                    click.echo(f"   Install path: {result['install_path']}")
-            else:
-                click.echo(f"❌ Kokoro installation failed: {result.get('error', 'Unknown error')}")
-        else:
-            click.echo(result)
     elif service_name == 'voicemode':
         from voice_mode.tools.service import install_voicemode_start_script
         result = asyncio.run(install_voicemode_start_script())
         if result.get("success"):
-            click.echo(f"✅ VoiceMode start script installed successfully")
+            click.echo("✅ VoiceMode start script installed successfully")
             if result.get('start_script'):
                 click.echo(f"   Start script: {result['start_script']}")
         else:
@@ -400,8 +391,8 @@ def whisper():
 
 
 # Kokoro service commands (deprecated - hidden from help but still functional)
-@kokoro.command(hidden=True)
-def status():
+@kokoro.command(name="status", hidden=True)
+def kokoro_status():
     """(Deprecated) Show Kokoro service status. Use 'voicemode service status kokoro' instead."""
     click.secho("⚠️  Deprecated: Use 'voicemode service status kokoro' instead", fg='yellow', err=True)
     from voice_mode.tools.service import status_service
@@ -418,8 +409,8 @@ def start():
     click.echo(result)
 
 
-@kokoro.command(hidden=True)
-def stop():
+@kokoro.command(name="stop", hidden=True)
+def kokoro_stop():
     """(Deprecated) Stop Kokoro service. Use 'voicemode service stop kokoro' instead."""
     click.secho("⚠️  Deprecated: Use 'voicemode service stop kokoro' instead", fg='yellow', err=True)
     from voice_mode.tools.service import stop_service
@@ -492,7 +483,7 @@ def health():
         click.echo(f"❌ Health check failed: {e}")
 
 
-@kokoro.command()
+@kokoro.command(name="install")
 @click.help_option('-h', '--help')
 @click.option('--install-dir', help='Directory to install kokoro-fastapi')
 @click.option('--port', default=8880, help='Port to configure for the service')
@@ -500,73 +491,19 @@ def health():
 @click.option('--version', default='latest', help='Version to install (default: latest)')
 @click.option('--auto-enable/--no-auto-enable', default=None, help='Enable service at boot/login')
 @click.option('--skip-deps', is_flag=True, help='Skip dependency checks (for advanced users)')
-def install(install_dir, port, force, version, auto_enable, skip_deps):
+def kokoro_install_command(install_dir, port, force, version, auto_enable, skip_deps):
     """Install kokoro-fastapi TTS service."""
     raise click.ClickException("Kokoro is not supported. Use ElevenLabs instead.")
-    result = asyncio.run(kokoro_install.fn(
-        install_dir=install_dir,
-        port=port,
-        force_reinstall=force,
-        version=version,
-        auto_enable=auto_enable,
-        skip_deps=skip_deps
-    ))
-    
-    if result.get('success'):
-        if result.get('already_installed'):
-            click.echo(f"✅ Kokoro already installed at {result['install_path']}")
-            click.echo(f"   Version: {result.get('version', 'unknown')}")
-        else:
-            click.echo("✅ Kokoro installed successfully!")
-            click.echo(f"   Install path: {result['install_path']}")
-            click.echo(f"   Version: {result.get('version', 'unknown')}")
-            
-        if result.get('enabled'):
-            click.echo("   Auto-start: Enabled")
-        
-        if result.get('migration_message'):
-            click.echo(f"\n{result['migration_message']}")
-    else:
-        click.echo(f"❌ Installation failed: {result.get('error', 'Unknown error')}")
-        if result.get('details'):
-            click.echo(f"   Details: {result['details']}")
 
 
-@kokoro.command()
+@kokoro.command(name="uninstall")
 @click.help_option('-h', '--help')
 @click.option('--remove-models', is_flag=True, help='Also remove downloaded Kokoro models')
 @click.option('--remove-all-data', is_flag=True, help='Remove all Kokoro data including logs and cache')
 @click.confirmation_option(prompt='Are you sure you want to uninstall Kokoro?')
-def uninstall(remove_models, remove_all_data):
+def kokoro_uninstall_command(remove_models, remove_all_data):
     """Uninstall kokoro-fastapi service and optionally remove data."""
     raise click.ClickException("Kokoro is not supported. Use ElevenLabs instead.")
-    result = asyncio.run(kokoro_uninstall.fn(
-        remove_models=remove_models,
-        remove_all_data=remove_all_data
-    ))
-    
-    if result.get('success'):
-        click.echo("✅ Kokoro uninstalled successfully!")
-        
-        if result.get('service_stopped'):
-            click.echo("   Service stopped")
-        if result.get('service_disabled'):
-            click.echo("   Service disabled")
-        if result.get('install_removed'):
-            click.echo(f"   Installation removed: {result['install_path']}")
-        if result.get('models_removed'):
-            click.echo("   Models removed")
-        if result.get('data_removed'):
-            click.echo("   All data removed")
-            
-        if result.get('warnings'):
-            click.echo("\n⚠️  Warnings:")
-            for warning in result['warnings']:
-                click.echo(f"   - {warning}")
-    else:
-        click.echo(f"❌ Uninstall failed: {result.get('error', 'Unknown error')}")
-        if result.get('details'):
-            click.echo(f"   Details: {result['details']}")
 
 
 # Create service group for whisper
@@ -674,51 +611,6 @@ def whisper_service_health():
 def whisper_service_install(install_dir, model, use_gpu, force, version, auto_enable, skip_deps):
     """Install whisper.cpp STT service with automatic system detection."""
     raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.")
-    result = asyncio.run(whisper_install.fn(
-        install_dir=install_dir,
-        model=model,
-        use_gpu=use_gpu,
-        force_reinstall=force,
-        version=version,
-        auto_enable=auto_enable,
-        skip_deps=skip_deps
-    ))
-    
-    if result.get('success'):
-        if result.get('already_installed'):
-            click.echo(f"✅ Whisper already installed at {result['install_path']}")
-            click.echo(f"   Version: {result.get('version', 'unknown')}")
-        else:
-            click.echo("✅ Whisper installed successfully!")
-            click.echo(f"   Install path: {result['install_path']}")
-            click.echo(f"   Version: {result.get('version', 'unknown')}")
-            
-        if result.get('gpu_enabled'):
-            click.echo("   GPU support: Enabled")
-        if result.get('model_downloaded'):
-            click.echo(f"   Model: {result.get('model', 'unknown')}")
-        if result.get('enabled'):
-            click.echo("   Auto-start: Enabled")
-        
-        if result.get('migration_message'):
-            click.echo(f"\n{result['migration_message']}")
-            
-        if result.get('next_steps'):
-            click.echo("\nNext steps:")
-            for step in result['next_steps']:
-                click.echo(f"   - {step}")
-
-        # Show warning if model download failed (GH-174)
-        if result.get('model_error'):
-            click.echo()
-            click.secho("⚠️  Model download failed:", fg='yellow', bold=True)
-            click.secho(f"   {result['model_error']}", fg='yellow')
-            click.echo("   Whisper won't work without a model.")
-            click.echo("   Try: voicemode whisper model install")
-    else:
-        click.echo(f"❌ Installation failed: {result.get('error', 'Unknown error')}")
-        if result.get('details'):
-            click.echo(f"   Details: {result['details']}")
 
 
 @whisper_service.command("uninstall")
@@ -729,33 +621,6 @@ def whisper_service_install(install_dir, model, use_gpu, force, version, auto_en
 def whisper_service_uninstall(remove_models, remove_all_data):
     """Uninstall whisper.cpp and optionally remove models and data."""
     raise click.ClickException("Whisper is not supported. Use ElevenLabs instead.")
-    result = asyncio.run(whisper_uninstall.fn(
-        remove_models=remove_models,
-        remove_all_data=remove_all_data
-    ))
-    
-    if result.get('success'):
-        click.echo("✅ Whisper uninstalled successfully!")
-        
-        if result.get('service_stopped'):
-            click.echo("   Service stopped")
-        if result.get('service_disabled'):
-            click.echo("   Service disabled")
-        if result.get('install_removed'):
-            click.echo(f"   Installation removed: {result['install_path']}")
-        if result.get('models_removed'):
-            click.echo("   Models removed")
-        if result.get('data_removed'):
-            click.echo("   All data removed")
-            
-        if result.get('warnings'):
-            click.echo("\n⚠️  Warnings:")
-            for warning in result['warnings']:
-                click.echo(f"   - {warning}")
-    else:
-        click.echo(f"❌ Uninstall failed: {result.get('error', 'Unknown error')}")
-        if result.get('details'):
-            click.echo(f"   Details: {result['details']}")
 
 
 # Whisper model command removed — ElevenLabs is the only provider
@@ -1344,7 +1209,6 @@ def config_list():
 def config_get(key):
     """Get a configuration value."""
     import os
-    from pathlib import Path
     
     # Read from the env file
     env_file = Path.home() / ".voicemode" / "voicemode.env"
@@ -1401,7 +1265,6 @@ def config_edit(editor):
         voicemode config edit --editor vim
         voicemode config edit --editor "code --wait"
     """
-    from pathlib import Path
 
     # Find the config file
     config_path = Path.home() / ".voicemode" / "voicemode.env"
@@ -1447,7 +1310,7 @@ def config_edit(editor):
         click.echo("✅ Configuration file edited successfully")
         click.echo("\nChanges will take effect when voicemode is restarted.")
     except subprocess.CalledProcessError:
-        click.echo(f"❌ Editor exited with an error")
+        click.echo("❌ Editor exited with an error")
     except FileNotFoundError:
         click.echo(f"❌ Editor not found: {editor_cmd}")
         click.echo("   Please check that the editor is installed and in your PATH")
@@ -1562,11 +1425,11 @@ def cli():
 
 
 # Import subcommand groups
-from voice_mode.cli_commands import exchanges as exchanges_cmd
-from voice_mode.cli_commands import transcribe as transcribe_cmd
-from voice_mode.cli_commands import status as status_cmd
-from voice_mode.cli_commands import claude as claude_cmd
-from voice_mode.cli_commands import soundfonts as soundfonts_cmd
+from voice_mode.cli_commands import exchanges as exchanges_cmd  # noqa: E402
+from voice_mode.cli_commands import transcribe as transcribe_cmd  # noqa: E402
+from voice_mode.cli_commands import status as status_cmd  # noqa: E402
+from voice_mode.cli_commands import claude as claude_cmd  # noqa: E402
+from voice_mode.cli_commands import soundfonts as soundfonts_cmd  # noqa: E402
 
 # Add subcommands to legacy CLI
 cli.add_command(exchanges_cmd.exchanges)
@@ -1869,6 +1732,9 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
     if not allow_ip and SERVE_ALLOWED_IPS:
         # Parse comma-separated CIDRs from config
         allow_ip = tuple(cidr.strip() for cidr in SERVE_ALLOWED_IPS.split(',') if cidr.strip())
+    trusted_proxy_cidrs = [
+        cidr.strip() for cidr in SERVE_TRUSTED_PROXIES.split(",") if cidr.strip()
+    ]
     if secret is None and SERVE_SECRET:
         secret = SERVE_SECRET
     if token is None and SERVE_TOKEN:
@@ -1900,6 +1766,9 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
     # Build the endpoint path with optional secret segment
     endpoint_path = f"{base_path}/{secret}" if has_secret else base_path
     endpoint_url = f"http://{host}:{port}{endpoint_path}"
+    display_endpoint_url = endpoint_url
+    if has_secret:
+        display_endpoint_url = f"http://{host}:{port}{base_path}/<redacted>"
 
     # Helper to mask secrets
     def mask_secret(s: str, show_chars: int = 4) -> str:
@@ -1934,6 +1803,7 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
         # Secret path info
         if has_secret:
             click.echo(f"  URL secret: {mask_secret(secret)}")
+            click.echo("  Secret-bearing endpoint URLs are intentionally redacted from logs/output")
 
         # Token auth info
         if has_token:
@@ -1941,14 +1811,14 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
 
         click.echo()
 
-    click.echo(f"Endpoint: {endpoint_url}")
+    click.echo(f"Endpoint: {display_endpoint_url}")
     click.echo(f"Log level: {log_level}")
     click.echo()
 
     # Show Claude Code connection options
     click.echo(click.style("Connect from Claude Code:", bold=True))
     click.echo()
-    click.echo(f"  claude mcp add --transport http voicemode {endpoint_url}")
+    click.echo("  claude mcp add --transport http voicemode <endpoint-url>")
     click.echo()
 
     # Show JSON config for manual setup
@@ -1958,20 +1828,25 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
     click.echo('    "mcpServers": {')
     click.echo('      "voicemode": {')
     click.echo('        "type": "http",')
-    click.echo(f'        "url": "{endpoint_url}"')
+    click.echo('        "url": "<endpoint-url>"')
     click.echo('      }')
     click.echo('    }')
     click.echo('  }')
     click.echo()
 
     click.echo(click.style("Legacy (mcp-remote):", bold=True))
-    click.echo(f"  npx mcp-remote {endpoint_url}")
+    click.echo("  npx mcp-remote <endpoint-url>")
     click.echo()
     click.echo("Press Ctrl+C to stop the server")
     click.echo()
 
-    # Create the app with the selected transport (fastmcp 2.14+ API)
-    app = mcp.http_app(transport=transport, path=endpoint_path)
+    # Use stateless Streamable HTTP so server restarts don't invalidate
+    # in-memory session state held by clients.
+    app = mcp.http_app(
+        transport=transport,
+        path=endpoint_path,
+        stateless_http=transport == "streamable-http",
+    )
 
     # Note: Middleware is applied in reverse order (last added = first executed)
     # Add token auth middleware (checked after IP allowlist)
@@ -1980,10 +1855,17 @@ def serve(host: str, port: int, transport: str, log_level: str, allow_anthropic:
 
     # Add IP allowlist middleware (checked first)
     if allowed_cidrs:
-        app.add_middleware(IPAllowlistMiddleware, allowed_cidrs=allowed_cidrs)
+        app.add_middleware(
+            IPAllowlistMiddleware,
+            allowed_cidrs=allowed_cidrs,
+            trusted_proxy_cidrs=trusted_proxy_cidrs,
+        )
 
     # Add access logging middleware (runs first, logs all requests)
-    app.add_middleware(AccessLogMiddleware)
+    app.add_middleware(
+        AccessLogMiddleware,
+        trusted_proxy_cidrs=trusted_proxy_cidrs,
+    )
 
     try:
         # Run the app with uvicorn directly to use our middleware
@@ -2019,7 +1901,6 @@ def completions(shell, install):
         voicemode completions zsh --install     # Install to ~/.zfunc/
         voicemode completions fish --install    # Install to ~/.config/fish/completions/
     """
-    from pathlib import Path
     
     # Generate completion scripts based on shell type
     if shell == 'bash':
@@ -2225,7 +2106,7 @@ def play(source: str, chapters: str | None, volume: int):
 @dj.command()
 @click.option('--line', '-l', is_flag=True, help='One-line output for tmux status bar')
 @click.help_option('-h', '--help', help='Show this message and exit')
-def status(line: bool):
+def dj_status(line: bool):
     """Show what's currently playing.
 
     Displays track information, playback position, volume, and chapter info.
@@ -2268,9 +2149,9 @@ def status(line: bool):
             click.echo("DJ is not running")
 
 
-@dj.command()
+@dj.command(name="stop")
 @click.help_option('-h', '--help', help='Show this message and exit')
-def stop():
+def dj_stop():
     """Stop playback and quit the player."""
     from voice_mode.dj import DJController
 
@@ -2483,9 +2364,9 @@ def mfp_play(episode: int, volume: int):
         if chapters_path:
             click.echo(f"Chapters: Loaded ({chapters_path.name})")
         if local_path:
-            click.echo(f"Source: Local file")
+            click.echo("Source: Local file")
         else:
-            click.echo(f"Source: Streaming")
+            click.echo("Source: Streaming")
         click.echo(f"Volume: {volume}%")
     else:
         click.echo("Failed to start playback", err=True)
@@ -2596,7 +2477,6 @@ def library_scan(path: str | None):
         voicemode dj library scan                    # Scan ~/Audio/music
         voicemode dj library scan --path ~/Music    # Scan custom path
     """
-    from pathlib import Path
     from voice_mode.dj.library import MusicLibrary
 
     library = MusicLibrary()
@@ -2707,7 +2587,6 @@ def favorite():
     Examples:
         voicemode dj favorite    # Toggle favorite on current track
     """
-    from pathlib import Path
     from voice_mode.dj import DJController
     from voice_mode.dj.library import MusicLibrary
 
@@ -2946,7 +2825,7 @@ def auth_status():
     # Token status
     if credentials.expires_at:
         if credentials.expires_at < time_module.time():
-            click.echo(f"  Token: expired (will be refreshed automatically)")
+            click.echo("  Token: expired (will be refreshed automatically)")
         else:
             click.echo(f"  Token expires: {format_expiry(credentials.expires_at)}")
 
@@ -3048,9 +2927,9 @@ async def _query_gateway_status(ws_url: str, access_token: str) -> dict:
         }
 
 
-@connect.command()
+@connect.command(name="status")
 @click.help_option('-h', '--help', help='Show this message and exit')
-def status():
+def connect_status():
     """Show real-time connection state from the gateway.
 
     Queries the VoiceMode Connect gateway (voicemode.dev) via a short-lived

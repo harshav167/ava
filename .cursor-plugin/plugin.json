@@ -1,0 +1,22 @@
+{
+  "name": "voicemode",
+  "displayName": "VoiceMode",
+  "version": "10.0.0",
+  "description": "Voice conversations with AI coding assistants using ElevenLabs TTS/STT. HTTP server on port 8765 with local Silero VAD and manual commit mode.",
+  "author": {
+    "name": "Harsha",
+    "email": "harsha@voicemode.dev"
+  },
+  "license": "MIT",
+  "keywords": [
+    "voice",
+    "mcp",
+    "tts",
+    "stt",
+    "elevenlabs",
+    "conversation"
+  ],
+  "commands": "./commands/",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json"
+}

@@ -256,7 +256,7 @@ def install_missing_dependencies(
         print("✅ Installation complete!")
         logger.info(f"Successfully installed: {', '.join(missing)}")
     else:
-        print(f"❌ Installation failed")
+        print("❌ Installation failed")
         if not verbose and output:
             print(f"\nError output:\n{output}")
         logger.error(f"Failed to install dependencies: {output}")

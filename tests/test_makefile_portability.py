@@ -29,7 +29,7 @@ class TestMakefilePortability:
                     problematic_lines.append((i, line.strip()))
         
         assert not problematic_lines, (
-            f"Found non-portable sed -i commands in Makefile:\n" +
+            "Found non-portable sed -i commands in Makefile:\n" +
             "\n".join([f"  Line {num}: {line}" for num, line in problematic_lines]) +
             "\n\nUse 'sed -i.bak ... && rm *.bak' for cross-platform compatibility"
         )

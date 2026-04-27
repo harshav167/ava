@@ -73,7 +73,7 @@ class AudioPlayer:
                         config_path = self.voicemode_home / "sound-fonts" / font_name / "config.json"
                     else:
                         return None
-                except:
+                except Exception:
                     return None
             else:
                 return None

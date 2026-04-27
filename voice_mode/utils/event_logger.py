@@ -12,7 +12,7 @@ import queue
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, field
 import logging
 import atexit
 

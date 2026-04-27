@@ -1,6 +1,5 @@
 """Setup and manage CoreML Python environment for whisper.cpp."""
 
-import os
 import subprocess
 import logging
 from pathlib import Path
@@ -214,7 +213,7 @@ def get_coreml_python(whisper_dir: Path) -> Optional[str]:
             )
             if result.returncode == 0:
                 return str(venv_coreml_python)
-        except:
+        except Exception:
             pass
     
     # Check existing venv as fallback
@@ -228,7 +227,7 @@ def get_coreml_python(whisper_dir: Path) -> Optional[str]:
             )
             if result.returncode == 0:
                 return str(venv_python)
-        except:
+        except Exception:
             pass
     
     return None
