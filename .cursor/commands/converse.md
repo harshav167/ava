@@ -1,4 +1,5 @@
 ---
+name: converse
 description: Start a continuous voice-primary conversation with the user
 argument-hint: [message]
 ---
@@ -83,7 +84,7 @@ Use the `converse` tool from the `voicemode` MCP server.
 Known client aliases:
 - Cursor/project MCP: `converse` on the `voicemode` server
 - Claude Code: `voicemode:converse` or `mcp__voicemode__converse`
-- Factory Droid: `mcp__voicemode__converse` or `voicemode___converse`
+- Factory: `mcp__voicemode__converse` or `voicemode___converse`
 - Claude Desktop: `converse` under the `voicemode` MCP server
 
 ## Mandatory Defaults
@@ -93,7 +94,6 @@ For main conversation turns, call the tool with these defaults unless the user e
 ```
 converse(
   message="Short voice adaptation of the chat response",
-  speed=1.2,
   listen_duration_min=5,
   listen_duration_max=300,
   timeout=300,
@@ -107,7 +107,6 @@ For the optional first acknowledgement before work continues immediately:
 ```
 converse(
   message="Brief acknowledgement; I will work silently and report the result.",
-  speed=1.2,
   listen_duration_min=5,
   listen_duration_max=300,
   timeout=300,
@@ -139,13 +138,13 @@ converse(message="...", listen_duration_max=300, timeout=300)
 If the user says they are being cut off:
 
 ```
-converse(message="Take your time. I adjusted the listening settings.", listen_duration_min=10, vad_aggressiveness=0, speed=1.2, listen_duration_max=300, timeout=300, wait_for_response=true, wait_for_conch=true)
+converse(message="Take your time. I adjusted the listening settings.", listen_duration_min=10, vad_aggressiveness=0, listen_duration_max=300, timeout=300, wait_for_response=true, wait_for_conch=true)
 ```
 
 For long dictation:
 
 ```
-converse(message="Go ahead, I am listening for the full duration.", disable_silence_detection=true, listen_duration_max=300, timeout=300, speed=1.2, wait_for_response=true, wait_for_conch=true)
+converse(message="Go ahead, I am listening for the full duration.", disable_silence_detection=true, listen_duration_max=300, timeout=300, wait_for_response=true, wait_for_conch=true)
 ```
 
 ## MCP Failure Behavior

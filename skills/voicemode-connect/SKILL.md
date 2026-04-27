@@ -1,16 +1,16 @@
 ---
 name: voicemode-connect
 description: |
-  Remote voice via VoiceMode Connect. Use when users want to add voice to Droid using their phone or web app, without local STT/TTS setup.
+  Remote voice via VoiceMode Connect. Use when users want to add voice to an AI coding assistant using their phone or web app, without local STT/TTS setup.
 ---
 
-# VoiceMode Connect for Factory Droid
+# VoiceMode Connect
 
-Voice conversations through the voicemode.dev cloud platform. Connect Droid to voice clients (iOS app, web app) without running local STT/TTS services.
+Voice conversations through the voicemode.dev cloud platform. Connect an AI coding assistant to voice clients (iOS app, web app) without running local STT/TTS services.
 
 ## How It Works
 
-**Agents** (Droid, Claude Code) connect via MCP to voicemode.dev.
+**Agents** (Cursor, Claude Code, Factory, or other MCP hosts) connect via MCP to voicemode.dev.
 **Clients** (iOS app, web app) connect via WebSocket.
 The platform routes voice messages between them.
 
@@ -18,7 +18,7 @@ The platform routes voice messages between them.
 
 ### 1. Add the MCP Server
 
-Add to your Droid MCP configuration:
+Add to your MCP host configuration:
 
 ```json
 {
@@ -46,7 +46,7 @@ Note: This is separate from local VoiceMode. Local VoiceMode uses HTTP transport
 
 ### 2. Authenticate
 
-When you first use a Connect tool, Droid will prompt for OAuth authentication. Sign in with your voicemode.dev account.
+When you first use a Connect tool, your MCP host will prompt for OAuth authentication. Sign in with your voicemode.dev account.
 
 ### 3. Connect a Client
 

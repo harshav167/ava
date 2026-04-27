@@ -1,24 +1,24 @@
 ---
 name: voicemode
 description: |
-  Voice interaction for Claude Code. Provides natural voice conversations using ElevenLabs TTS and STT.
+  Voice interaction for AI coding assistants. Provides natural voice conversations using ElevenLabs TTS and STT.
   Use when users mention voice mode, speak, talk, converse, voice status, or voice troubleshooting.
   ElevenLabs-only: eleven_v3 TTS model, Scribe v2 Realtime STT with local Silero VAD.
 ---
 
-# VoiceMode for Claude Code
+# VoiceMode
 
-Natural voice conversations with Claude Code using ElevenLabs text-to-speech (TTS) and speech-to-text (STT).
+Natural voice conversations with AI coding assistants using ElevenLabs text-to-speech (TTS) and speech-to-text (STT).
 
 ## The Jarvis Goal
 
-VoiceMode aims to create a Jarvis-like voice assistant experience. The AI speaks to you and listens, like a real conversation. Use `converse` for ALL communication -- never respond with text in the chat.
+VoiceMode aims to create a Jarvis-like voice assistant experience. The AI speaks to you and listens, like a real conversation. In voice-primary mode, substantive responses must go through `converse`; if voice fails, stop and restore MCP instead of continuing chat-only.
 
 ## Setup
 
 ### 1. Configure MCP Server
 
-VoiceMode runs as an HTTP server on port 8765. Add to your Claude Code MCP settings (`~/.claude/settings.json`):
+VoiceMode runs as an HTTP server on port 8765. Add this MCP configuration to Cursor, Claude Code, Factory, or another MCP-capable host:
 
 ```json
 {
@@ -46,17 +46,17 @@ ElevenLabs provides:
 
 ## Usage
 
-Use the `converse` MCP tool. **Always use these defaults:**
+Use the `converse` MCP tool. Trust server defaults unless changing behavior for the current turn:
 
 ```python
 # Speak and listen for response
 converse(message="Hello! What would you like to work on?", listen_duration_min=5, listen_duration_max=300, timeout=300, wait_for_conch=true)
 
 # Speak without waiting (narration while working)
-converse(message="Searching the codebase now...", wait_for_response=false, speed=1.2)
+converse(message="Searching the codebase now...", wait_for_response=false, wait_for_conch=true)
 
 # User wants to say something long
-converse(message="Go ahead, I'm listening.", disable_silence_detection=true, listen_duration_max=120, speed=1.2)
+converse(message="Go ahead, I'm listening.", disable_silence_detection=true, listen_duration_max=300, timeout=300, wait_for_conch=true)
 ```
 
 | Parameter | Default | Description |
@@ -78,8 +78,8 @@ converse(message="Go ahead, I'm listening.", disable_silence_detection=true, lis
 2. **Trust server defaults** -- speed defaults to 1.2; pass optional parameters only when changing behavior
 3. **Narrate without waiting rarely** -- Use `wait_for_response=false` only for short acknowledgements before work
 4. **One question at a time** -- Don't bundle multiple questions
-5. **Parallel calls** -- Combine `converse(msg, wait_for_response=false)` with other tools in one turn for zero dead air
-6. **Long input** -- Set `disable_silence_detection=true` and `listen_duration_max=120` when user needs to speak at length
+5. **Parallel calls** -- Combine a rare short `converse(..., wait_for_response=false)` acknowledgement with other tools in one turn for zero dead air
+6. **Long input** -- Set `disable_silence_detection=true`, `listen_duration_max=300`, and `timeout=300` when user needs to speak at length
 
 ## Parallel Tool Calls (Zero Dead Air)
 
@@ -87,11 +87,11 @@ When performing actions during a voice conversation, use parallel tool calls to 
 
 ```python
 # FAST: One turn -- voice and action fire simultaneously
-converse("Checking that now.", wait_for_response=false, speed=1.2)
+converse("Checking that now.", wait_for_response=false, wait_for_conch=true)
 bash("git status")
 
 # Then speak the results
-converse("Here's what I found: ...", wait_for_response=true, speed=1.2)
+converse("Here's what I found: ...", wait_for_response=true, wait_for_conch=true)
 ```
 
 ## Configuration

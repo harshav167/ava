@@ -1,20 +1,19 @@
 ---
-description: Install VoiceMode, FFmpeg, and local voice services
+name: install
+description: Install VoiceMode, FFmpeg, and configure the local HTTP MCP server
 allowed-tools: Bash(uvx:*), Bash(voicemode:*), Bash(brew:*), Bash(uname:*), Bash(which:*)
 ---
 
 # /voicemode:install
 
-Install VoiceMode and all dependencies needed for voice conversations.
+Install VoiceMode and the dependencies needed for ElevenLabs-backed voice conversations.
 
 ## Quick Install (Non-Interactive)
 
-For a fast, fully automated install on Apple Silicon:
+For a fast install:
 
 ```bash
 uvx voice-mode-install --yes
-voicemode service install whisper
-voicemode service install kokoro
 ```
 
 ## What Gets Installed
@@ -22,9 +21,8 @@ voicemode service install kokoro
 | Component | Size | Purpose |
 |-----------|------|---------|
 | FFmpeg | ~50MB | Audio processing (via Homebrew) |
-| VoiceMode CLI | ~10MB | Command-line tools |
-| Whisper (base) | ~150MB | Speech-to-text |
-| Kokoro | ~350MB | Text-to-speech |
+| VoiceMode CLI | ~10MB | Command-line tools and server management |
+| ElevenLabs API key | — | TTS/STT provider access |
 
 ## Implementation
 
@@ -40,38 +38,23 @@ voicemode service install kokoro
    ```bash
    # Full install (installs ffmpeg, voicemode, and checks dependencies)
    uvx voice-mode-install --yes
-
-   # Install local services
-   voicemode service install whisper
-   voicemode service install kokoro
    ```
 
-4. **Verify services are running:**
+4. **Configure ElevenLabs:**
    ```bash
-   voicemode service status whisper
-   voicemode service status kokoro
+   # In ~/.voicemode/voicemode.env
+   ELEVENLABS_API_KEY=your-key-here
    ```
 
-5. **Reconnect MCP server:**
+5. **Verify the local HTTP MCP server is running:**
+   ```bash
+   ./scripts/voicemode-server.sh status
+   ```
+
+6. **Reconnect MCP server:**
    After installation, the VoiceMode MCP server needs to reconnect:
    - Run `/mcp` and select voicemode, then click "Reconnect", OR
    - Restart Claude Code
-
-## Whisper Model Selection
-
-For Apple Silicon Macs with 16GB+ RAM, the large-v2 model is recommended:
-
-| Model | Download | RAM Usage | Accuracy |
-|-------|----------|-----------|----------|
-| base | ~150MB | ~300MB | Good (default) |
-| small | ~460MB | ~1GB | Better |
-| large-v2 | ~3GB | ~5GB | Best (recommended for 16GB+ RAM) |
-| large-v3-turbo | ~1.5GB | ~3GB | Fast & accurate |
-
-To install the recommended model:
-```bash
-voicemode whisper install --model large-v2
-```
 
 ## Prerequisites
 

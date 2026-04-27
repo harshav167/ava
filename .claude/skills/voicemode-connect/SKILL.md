@@ -1,6 +1,6 @@
 ---
 name: voicemode-connect
-description: Remote voice via VoiceMode Connect. Use when users want to add voice to Claude Code using their phone or web app, without local STT/TTS setup.
+description: Remote voice via VoiceMode Connect. Use when users want to add voice to an AI coding assistant using their phone or web app, without local STT/TTS setup.
 ---
 
 # VoiceMode Connect
@@ -9,7 +9,7 @@ Voice conversations through the voicemode.dev cloud platform. Connect your AI as
 
 ## How It Works
 
-**Agents** (Claude Code, claude.ai) connect via MCP to voicemode.dev.
+**Agents** (Cursor, Claude Code, Factory, or other MCP hosts) connect via MCP to voicemode.dev.
 **Clients** (iOS app, web app) connect via WebSocket.
 The platform routes voice messages between them.
 
@@ -17,7 +17,7 @@ The platform routes voice messages between them.
 
 ### 1. Add the MCP Server
 
-Add to your Claude Code MCP settings (`~/.claude/settings.json`):
+Add to your MCP host configuration:
 
 ```json
 {
@@ -45,7 +45,7 @@ Note: This is separate from local VoiceMode. Local VoiceMode uses HTTP transport
 
 ### 2. Authenticate
 
-When you first use a Connect tool, Claude Code will prompt for OAuth authentication. Sign in with your voicemode.dev account.
+When you first use a Connect tool, your MCP host will prompt for OAuth authentication. Sign in with your voicemode.dev account.
 
 ### 3. Connect a Client
 

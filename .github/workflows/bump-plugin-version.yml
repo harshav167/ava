@@ -1,0 +1,165 @@
+name: Bump Plugin Versions
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".cursor-plugin/**"
+      - ".claude-plugin/**"
+      - ".factory-plugin/**"
+      - "commands/**"
+      - "skills/**"
+      - "mcp.json"
+      - "server.json"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".cursor-plugin/**"
+      - ".claude-plugin/**"
+      - ".factory-plugin/**"
+      - "commands/**"
+      - "skills/**"
+      - "mcp.json"
+      - "server.json"
+
+permissions:
+  contents: write
+
+jobs:
+  bump-on-main:
+    if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump plugin metadata patch version
+        id: bump
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          version_files = {
+              ".cursor-plugin/plugin.json",
+              ".claude-plugin/plugin.json",
+              ".claude-plugin/marketplace.json",
+              ".factory-plugin/plugin.json",
+              "server.json",
+          }
+          watched_prefixes = (
+              ".cursor-plugin/",
+              ".claude-plugin/",
+              ".factory-plugin/",
+              "commands/",
+              "skills/",
+          )
+          watched_files = {"mcp.json", "server.json"}
+
+          changed = subprocess.check_output(
+              ["git", "diff", "--name-only", "HEAD~1", "HEAD"],
+              text=True,
+          ).splitlines()
+          relevant = [
+              path for path in changed
+              if path in watched_files or path.startswith(watched_prefixes)
+          ]
+          if not relevant:
+              print("No plugin files changed; skipping version bump.")
+              raise SystemExit(0)
+          if set(relevant).issubset(version_files):
+              print("Only version metadata changed; skipping version bump.")
+              raise SystemExit(0)
+
+          cursor_manifest = Path(".cursor-plugin/plugin.json")
+          data = json.loads(cursor_manifest.read_text())
+          current = data["version"]
+          match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", current)
+          if not match:
+              raise SystemExit(f"Unsupported plugin version format: {current}")
+
+          major, minor, patch = map(int, match.groups())
+          next_version = f"{major}.{minor}.{patch + 1}"
+
+          for manifest in [
+              ".cursor-plugin/plugin.json",
+              ".claude-plugin/plugin.json",
+              ".factory-plugin/plugin.json",
+          ]:
+              path = Path(manifest)
+              manifest_data = json.loads(path.read_text())
+              manifest_data["version"] = next_version
+              path.write_text(json.dumps(manifest_data, indent=2) + "\n")
+
+          marketplace = Path(".claude-plugin/marketplace.json")
+          marketplace_data = json.loads(marketplace.read_text())
+          marketplace_data.setdefault("metadata", {})["version"] = next_version
+          marketplace.write_text(json.dumps(marketplace_data, indent=2) + "\n")
+
+          server = Path("server.json")
+          server_data = json.loads(server.read_text())
+          server_data["version"] = next_version
+          for package in server_data.get("packages", []):
+              if package.get("identifier") == "voice-mode":
+                  package["version"] = next_version
+          server.write_text(json.dumps(server_data, indent=2) + "\n")
+
+          with open("version.env", "w") as fh:
+              fh.write(f"NEXT_VERSION={next_version}\n")
+          print(f"Bumped plugin metadata from {current} to {next_version}")
+          PY
+
+          if [ -f version.env ]; then
+            cat version.env >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit version bump
+        if: steps.bump.outputs.NEXT_VERSION != ''
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .cursor-plugin/plugin.json .claude-plugin/plugin.json .claude-plugin/marketplace.json .factory-plugin/plugin.json server.json
+          git commit -m "chore: bump plugin version to ${{ steps.bump.outputs.NEXT_VERSION }} [skip ci]"
+          git push
+
+  validate-pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate plugin versions are consistent
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          versions = {
+              ".cursor-plugin/plugin.json": json.loads(Path(".cursor-plugin/plugin.json").read_text())["version"],
+              ".claude-plugin/plugin.json": json.loads(Path(".claude-plugin/plugin.json").read_text())["version"],
+              ".factory-plugin/plugin.json": json.loads(Path(".factory-plugin/plugin.json").read_text())["version"],
+              ".claude-plugin/marketplace.json": json.loads(Path(".claude-plugin/marketplace.json").read_text())["metadata"]["version"],
+              "server.json": json.loads(Path("server.json").read_text())["version"],
+          }
+          package_version = next(
+              package["version"]
+              for package in json.loads(Path("server.json").read_text()).get("packages", [])
+              if package.get("identifier") == "voice-mode"
+          )
+          versions["server.json packages[voice-mode]"] = package_version
+
+          unique = set(versions.values())
+          if len(unique) != 1:
+              raise SystemExit(f"Plugin versions are inconsistent: {versions}")
+          version = unique.pop()
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              raise SystemExit(f"Plugin version must be semver major.minor.patch: {version}")
+          print(f"Plugin versions are consistent: {version}")
+          PY

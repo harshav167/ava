@@ -1,10 +1,11 @@
 ---
-description: Check the status of VoiceMode services
+name: status
+description: Check the VoiceMode MCP server and configuration status
 ---
 
 # /voicemode:status
 
-Check the status of VoiceMode services.
+Check the status of the VoiceMode MCP server and configuration.
 
 ## Usage
 
@@ -14,7 +15,7 @@ Check the status of VoiceMode services.
 
 ## Description
 
-Shows the current status of VoiceMode services including Whisper (STT), Kokoro (TTS), and LiveKit (if used).
+Shows whether the local HTTP MCP server is running on port 8765 and whether VoiceMode configuration is available.
 
 ## Implementation
 
@@ -22,27 +23,20 @@ Use the `mcp__voicemode__service` tool:
 
 ```json
 {
-  "service_name": "whisper",
+  "service_name": "voicemode",
   "action": "status"
 }
 ```
 
-Check all services:
+Check the local launchd-managed server from the shell if the MCP tool is unavailable:
 
 ```bash
-# Check Whisper (STT)
-mcp__voicemode__service service_name=whisper action=status
-
-# Check Kokoro (TTS)
-mcp__voicemode__service service_name=kokoro action=status
-
-# Check LiveKit (optional)
-mcp__voicemode__service service_name=livekit action=status
+./scripts/voicemode-server.sh status
 ```
 
 ## Output
 
-Shows for each service:
-- Running status
-- Resource usage
-- Endpoint availability
+Shows:
+- MCP server running/listening status
+- Relevant configuration status
+- Any actionable setup issue

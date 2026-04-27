@@ -1,24 +1,24 @@
 ---
 name: voicemode
 description: |
-  Voice interaction for Droid. Provides natural voice conversations using ElevenLabs TTS and STT.
+  Voice interaction for AI coding assistants. Provides natural voice conversations using ElevenLabs TTS and STT.
   Use when users mention voice mode, speak, talk, converse, voice status, or voice troubleshooting.
   ElevenLabs-only: eleven_v3 TTS model, Scribe v2 Realtime STT with local Silero VAD.
 ---
 
-# VoiceMode for Factory Droid
+# VoiceMode
 
-Natural voice conversations with Droid using ElevenLabs text-to-speech (TTS) and speech-to-text (STT).
+Natural voice conversations with AI coding assistants using ElevenLabs text-to-speech (TTS) and speech-to-text (STT).
 
 ## The Jarvis Goal
 
-VoiceMode aims to create a Jarvis-like voice assistant experience. The AI speaks to you and listens, like a real conversation. Use `converse` for ALL communication -- never respond with text in the chat.
+VoiceMode aims to create a Jarvis-like voice assistant experience. The AI speaks to you and listens, like a real conversation. In voice-primary mode, substantive responses must go through `converse`; if voice fails, stop and restore MCP instead of continuing chat-only.
 
 ## Setup
 
 ### 1. Configure MCP Server
 
-VoiceMode runs as an HTTP server on port 8765. Add to your Droid MCP configuration (`~/.factory/mcp.json` or project `.factory/mcp.json`):
+VoiceMode runs as an HTTP server on port 8765. Add this MCP configuration to Cursor, Claude Code, Factory, or another MCP-capable host:
 
 ```json
 {
@@ -46,39 +46,40 @@ ElevenLabs provides:
 
 ## Usage
 
-Use the `converse` MCP tool. **Always use these defaults:**
+Use the `converse` MCP tool. Trust server defaults unless changing behavior for the current turn:
 
 ```python
 # Speak and listen for response
-converse(message="Hello! What would you like to work on?", speed=1.2, listen_duration_min=5, listen_duration_max=60)
+converse(message="Hello! What would you like to work on?", listen_duration_min=5, listen_duration_max=300, timeout=300, wait_for_conch=true)
 
 # Speak without waiting (narration while working)
-converse(message="Searching the codebase now...", wait_for_response=false, speed=1.2)
+converse(message="Searching the codebase now...", wait_for_response=false, wait_for_conch=true)
 
 # User wants to say something long
-converse(message="Go ahead, I'm listening.", disable_silence_detection=true, listen_duration_max=120, speed=1.2)
+converse(message="Go ahead, I'm listening.", disable_silence_detection=true, listen_duration_max=300, timeout=300, wait_for_conch=true)
 ```
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `message` | required | Text to speak |
 | `wait_for_response` | true | Listen after speaking |
-| `speed` | `1.2` | **Always use 1.2** (max ElevenLabs speed) |
+| `speed` | server default `1.2` | Only pass when changing speed during a session |
 | `listen_duration_min` | `5` | Don't cut off mid-sentence |
-| `listen_duration_max` | `60` | Reasonable default |
+| `listen_duration_max` | `300` | Default maximum listen window |
+| `timeout` | `300` | Must be >= `listen_duration_max` |
 | `vad_aggressiveness` | `1` | VAD strictness (0-3). Lower = more tolerant of pauses. |
 | `disable_silence_detection` | `false` | Set `true` to record for full duration |
 | `metrics_level` | `summary` | Output detail: `minimal`, `summary`, or `verbose` |
-| `wait_for_conch` | `false` | Queue behind another speaker if one is active |
+| `wait_for_conch` | `true` | Queue behind another speaker if one is active |
 
 ## Best Practices
 
-1. **Voice-only communication** -- ALL responses go through `converse`, never text
-2. **Speed 1.2 always** -- Max ElevenLabs speed, user prefers fast speech
-3. **Narrate without waiting** -- Use `wait_for_response=false` when announcing actions
+1. **Voice-primary communication** -- substantive responses go through `converse`; if voice fails, stop and restore MCP instead of continuing chat-only
+2. **Trust server defaults** -- speed defaults to 1.2; pass optional parameters only when changing behavior
+3. **Narrate without waiting rarely** -- Use `wait_for_response=false` only for short acknowledgements before work
 4. **One question at a time** -- Don't bundle multiple questions
-5. **Parallel calls** -- Combine `converse(msg, wait_for_response=false)` with other tools in one turn for zero dead air
-6. **Long input** -- Set `disable_silence_detection=true` and `listen_duration_max=120` when user needs to speak at length
+5. **Parallel calls** -- Combine a rare short `converse(..., wait_for_response=false)` acknowledgement with other tools in one turn for zero dead air
+6. **Long input** -- Set `disable_silence_detection=true`, `listen_duration_max=300`, and `timeout=300` when user needs to speak at length
 
 ## Configuration
 

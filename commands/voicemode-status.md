@@ -1,4 +1,5 @@
 ---
+name: voicemode-status
 description: Check VoiceMode service status
 ---
 

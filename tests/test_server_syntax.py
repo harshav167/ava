@@ -145,7 +145,8 @@ class TestServerSyntax:
             content = f.read()
         
         # Check that key modules are imported (functions are now in separate modules)
-        assert 'from . import config' in content, "config module should be imported"
+        assert 'from .runtime_context import get_runtime_context' in content, "runtime context should be imported"
+        assert 'from .config import setup_logging' in content, "config logging setup should be imported"
         assert 'from . import tools' in content, "tools module should be imported"
         assert 'def main()' in content, "main function not found"
         # Tools are now in separate modules, not in server.py itself
