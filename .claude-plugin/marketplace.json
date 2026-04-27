@@ -2,7 +2,7 @@
   "name": "voicemode",
   "metadata": {
     "description": "VoiceMode - Voice conversations for Claude Code",
-    "version": "10.0.0"
+    "version": "10.0.1"
   },
   "owner": {
     "name": "VoiceMode",
