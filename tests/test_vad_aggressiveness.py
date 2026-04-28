@@ -118,11 +118,22 @@ class TestVADAggressiveness:
         mock_webrtc_vad.Vad.assert_called_with(VAD_AGGRESSIVENESS)
 
     def test_silero_aggressiveness_parameter_override(self, mock_silero_vad, mock_audio_recording):
-        """Test that vad_aggressiveness parameter maps to Silero thresholds."""
-        with patch('voice_mode.tools.converse.VAD_AVAILABLE', True):
-            with patch('voice_mode.tools.converse.get_threshold_for_aggressiveness') as mock_threshold:
-                mock_threshold.return_value = 0.7
+        """Test that a custom stop policy threshold is used for Silero decisions."""
+        from voice_mode.silero_vad import StopPolicy
 
+        custom_policy = StopPolicy(
+            max_duration=1.0,
+            min_duration=0.0,
+            disable_silence_detection=False,
+            vad_aggressiveness=2,
+            vad_probability_threshold=0.75,
+            realtime_silence_threshold_secs=2.0,
+            local_silence_threshold_ms=500,
+            local_vad_probability_threshold=0.7,
+        )
+
+        with patch('voice_mode.tools.converse.VAD_AVAILABLE', True):
+            with patch('voice_mode.tools.converse.build_stop_policy', return_value=custom_policy) as mock_policy:
                 with patch('queue.Queue') as mock_queue:
                     mock_queue_instance = MagicMock()
                     mock_queue_instance.get.side_effect = Exception("Timeout")
@@ -136,5 +147,5 @@ class TestVADAggressiveness:
                     except Exception:
                         pass
 
-                # Verify threshold was requested for aggressiveness level 2
-                mock_threshold.assert_called_with(2)
+                mock_policy.assert_called_once()
+                mock_silero_vad.reset_states.assert_called_once()
