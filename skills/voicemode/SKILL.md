@@ -46,7 +46,9 @@ ElevenLabs provides:
 
 ## Usage
 
-Use the `converse` MCP tool. Trust server defaults unless changing behavior for the current turn:
+Use the `converse` MCP tool. Trust server defaults unless changing behavior for the current turn.
+
+Do **not** bypass the native MCP tool with `curl`, raw HTTP requests, or direct `/mcp` JSON-RPC calls when the host already exposes VoiceMode as an MCP tool. If Cursor, Claude Code, Factory, or another MCP-capable host has surfaced `converse`, use that native tool path rather than manually posting to `http://127.0.0.1:8765/mcp`.
 
 ```python
 # Speak and listen for response

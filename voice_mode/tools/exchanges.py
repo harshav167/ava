@@ -241,8 +241,13 @@ async def exchanges(
             if show_conversation:
                 if not matches:
                     return "No exchanges found."
-                groups = ConversationGrouper().group_exchanges(matches)
-                conversations = list(groups.values())[:limit]
+                matched_conversation_ids = {exchange.conversation_id for exchange in matches}
+                full_conversations = [
+                    exchange for exchange in exchanges_data
+                    if exchange.conversation_id in matched_conversation_ids
+                ]
+                groups = ConversationGrouper().group_exchanges(full_conversations)
+                conversations = [groups[conv_id] for conv_id in matched_conversation_ids if conv_id in groups][:limit]
                 if format == "json":
                     return json.dumps([conv.to_dict() for conv in conversations], indent=2)
                 if format == "html":

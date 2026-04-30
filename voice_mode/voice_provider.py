@@ -23,6 +23,7 @@ class SpeakOptions:
     text: str
     voice: Optional[str] = None
     model: Optional[str] = None
+    base_url: Optional[str] = None
     instructions: Optional[str] = None
     audio_format: Optional[str] = None
     speed: Optional[float] = None
@@ -195,7 +196,7 @@ class SpeechService:
             text=options.text,
             voice=voice,
             model=model,
-            base_url=endpoint.base_url if endpoint else None,
+            base_url=options.base_url or (endpoint.base_url if endpoint else None),
             instructions=options.instructions,
             audio_format=options.audio_format,
             speed=options.speed if options.speed is not None else settings.tts_speed,
@@ -239,7 +240,13 @@ class SpeechService:
     def _select_tts_endpoint(self, options: SpeakOptions) -> Optional[EndpointInfo]:
         selector = getattr(self.registry, "select_tts_endpoint", None)
         if selector:
-            return selector(voice=options.voice, model=options.model)
+            return selector(voice=options.voice, model=options.model, base_url=options.base_url)
+
+        if options.base_url:
+            endpoints = self.registry.get_endpoints("tts")
+            endpoint = next((e for e in endpoints if e.base_url == options.base_url), None)
+            if endpoint:
+                return endpoint
 
         if options.voice:
             endpoint = self.registry.find_endpoint_with_voice(options.voice)

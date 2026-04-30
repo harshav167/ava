@@ -38,6 +38,22 @@ def sample_exchanges_dir(tmp_path, monkeypatch):
     entries = [
         {
             "version": 3,
+            "timestamp": (now - timedelta(seconds=2)).isoformat(),
+            "conversation_id": "conv_1",
+            "type": "tts",
+            "text": "Let's investigate the bug together.",
+            "project_path": "/tmp/project",
+            "metadata": {
+                "voice_mode_version": "8.5.1",
+                "provider": "elevenlabs",
+                "model": "eleven_v3",
+                "voice": "nova",
+                "transport": "local",
+                "timing": "ttfa 0.1s, gen 0.4s, play 0.8s",
+            },
+        },
+        {
+            "version": 3,
             "timestamp": now.isoformat(),
             "conversation_id": "conv_1",
             "type": "stt",
@@ -291,6 +307,7 @@ class TestExchangesTool:
         )
 
         assert "# Conversation conv_1" in result
+        assert "Let's investigate the bug together." in result
         assert "search for websocket bugs" in result
         assert "I found two websocket issues." in result
 
@@ -301,7 +318,7 @@ class TestExchangesTool:
         result = await exchanges(action="stats", days=7, stats_view="summary")
 
         assert "Exchange Statistics Summary" in result
-        assert "Total Exchanges: 3" in result
+        assert "Total Exchanges: 4" in result
 
     @pytest.mark.asyncio
     async def test_stats_providers_json(self, sample_exchanges_dir):
@@ -310,7 +327,7 @@ class TestExchangesTool:
         result = await exchanges(action="stats", days=7, stats_view="providers")
         data = json.loads(result)
 
-        assert data["providers"]["elevenlabs"] == 3
+        assert data["providers"]["elevenlabs"] == 4
         assert "models" in data
         assert "voices" in data
 

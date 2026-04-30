@@ -21,6 +21,7 @@ class AudioSettings:
     save_audio: bool
     save_transcriptions: bool
     audio_feedback_enabled: bool
+    audio_ducking_enabled: bool
     skip_tts: bool
 
 
@@ -90,6 +91,7 @@ class RuntimeSettings:
     save_audio: bool
     save_transcriptions: bool
     audio_feedback_enabled: bool
+    audio_ducking_enabled: bool
     skip_tts: bool
     metrics_level: str
     sample_rate: int
@@ -635,6 +637,7 @@ def _build_settings_from_environment(environment: Mapping[str, str]) -> RuntimeS
         save_audio=save_audio,
         save_transcriptions=save_transcriptions,
         audio_feedback_enabled=_env_bool(environment, "VOICEMODE_AUDIO_FEEDBACK", True),
+        audio_ducking_enabled=_env_bool(environment, "VOICEMODE_AUDIO_DUCKING", True),
         skip_tts=_env_bool(environment, "VOICEMODE_SKIP_TTS"),
     )
     logging = LoggingSettings(
@@ -668,6 +671,7 @@ def _build_settings_from_environment(environment: Mapping[str, str]) -> RuntimeS
         save_audio=audio.save_audio,
         save_transcriptions=audio.save_transcriptions,
         audio_feedback_enabled=audio.audio_feedback_enabled,
+        audio_ducking_enabled=audio.audio_ducking_enabled,
         skip_tts=audio.skip_tts,
         metrics_level=logging.metrics_level,
         sample_rate=audio.sample_rate,
@@ -724,6 +728,7 @@ def _snapshot_from_settings(settings: RuntimeSettings) -> SimpleNamespace:
         SAVE_AUDIO=settings.save_audio,
         SAVE_TRANSCRIPTIONS=settings.save_transcriptions,
         AUDIO_FEEDBACK_ENABLED=settings.audio_feedback_enabled,
+        AUDIO_DUCKING_ENABLED=settings.audio_ducking_enabled,
         SKIP_TTS=settings.skip_tts,
         METRICS_LEVEL=settings.metrics_level,
         SAMPLE_RATE=settings.sample_rate,
@@ -957,6 +962,7 @@ def _settings_from_config(c: Any) -> RuntimeSettings:
         save_audio=c.SAVE_AUDIO,
         save_transcriptions=c.SAVE_TRANSCRIPTIONS,
         audio_feedback_enabled=c.AUDIO_FEEDBACK_ENABLED,
+        audio_ducking_enabled=c.AUDIO_DUCKING_ENABLED,
         skip_tts=c.SKIP_TTS,
     )
     providers = ProviderSettings(
@@ -1009,6 +1015,7 @@ def _settings_from_config(c: Any) -> RuntimeSettings:
         save_audio=audio.save_audio,
         save_transcriptions=audio.save_transcriptions,
         audio_feedback_enabled=audio.audio_feedback_enabled,
+        audio_ducking_enabled=audio.audio_ducking_enabled,
         skip_tts=audio.skip_tts,
         metrics_level=logging.metrics_level,
         sample_rate=audio.sample_rate,

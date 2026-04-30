@@ -95,6 +95,7 @@ SAVE_TRANSCRIPTIONS = SAVE_ALL or DEBUG or os.getenv("VOICEMODE_SAVE_TRANSCRIPTI
 
 # Audio feedback configuration
 AUDIO_FEEDBACK_ENABLED = os.getenv("VOICEMODE_AUDIO_FEEDBACK", "true").lower() in ("true", "1", "yes", "on")
+AUDIO_DUCKING_ENABLED = os.getenv("VOICEMODE_AUDIO_DUCKING", "true").lower() in ("true", "1", "yes", "on")
 
 # Skip TTS configuration (skip text-to-speech for faster responses)
 SKIP_TTS = os.getenv("VOICEMODE_SKIP_TTS", "false").lower() in ("true", "1", "yes", "on")
@@ -122,6 +123,8 @@ CONCH_ENABLED = os.getenv("VOICEMODE_CONCH_ENABLED", "true").lower() in ("true",
 
 # Maximum time (seconds) to wait for conch when wait_for_conch=true
 CONCH_TIMEOUT = float(os.getenv("VOICEMODE_CONCH_TIMEOUT", "60"))
+CONVERSE_TIMEOUT = float(os.getenv("VOICEMODE_CONVERSE_TIMEOUT", "600"))
+ELEVENLABS_HTTP_TIMEOUT = float(os.getenv("VOICEMODE_ELEVENLABS_HTTP_TIMEOUT", "300"))
 
 # How often (seconds) to check if conch is free when waiting
 CONCH_CHECK_INTERVAL = float(os.getenv("VOICEMODE_CONCH_CHECK_INTERVAL", "0.5"))
@@ -399,7 +402,7 @@ _startup_initialized = False
 
 def setup_logging() -> logging.Logger:
     """Configure logging for the voice-mode server.
-    
+
     Returns:
         Logger instance configured for voice-mode
     """
@@ -409,6 +412,13 @@ def setup_logging() -> logging.Logger:
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     logger = logging.getLogger("voicemode")
+
+    # setup_logging may be called multiple times (imports, tests, restarts).
+    # Avoid stacking duplicate file handlers on the same logger.
+    if getattr(logger, "_voicemode_logging_configured", False):
+        return logger
+
+    logger._voicemode_logging_configured = True
 
     # ALWAYS write structured logs to file for crash investigation
     log_dir = Path.home() / ".voicemode" / "logs"
@@ -420,44 +430,47 @@ def setup_logging() -> logging.Logger:
         '%(asctime)s [%(levelname)s] %(name)s:%(funcName)s:%(lineno)d - %(message)s'
     ))
     logger.addHandler(file_handler)
+
     # Also capture uncaught exceptions
     import sys
+
     def _uncaught_exception_handler(exc_type, exc_value, exc_tb):
         if issubclass(exc_type, KeyboardInterrupt):
             sys.__excepthook__(exc_type, exc_value, exc_tb)
             return
         logger.critical("Uncaught exception", exc_info=(exc_type, exc_value, exc_tb))
+
     sys.excepthook = _uncaught_exception_handler
-    
+
     # Trace logging setup
     if TRACE_DEBUG:
         import sys
         from datetime import datetime
-        
+
         # Create debug log directory
         debug_log_dir = Path.home() / ".voicemode" / "logs" / "debug"
         debug_log_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Create dated debug log file
         debug_log_file = debug_log_dir / f"voicemode_debug_{datetime.now().strftime('%Y-%m-%d')}.log"
-        
+
         # Set up file handler for debug logs
         debug_handler = logging.FileHandler(debug_log_file, mode='a')
         debug_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-        
+
         # Enable debug logging for httpx and openai
         httpx_logger = logging.getLogger("httpx")
         httpx_logger.setLevel(logging.DEBUG)
         httpx_logger.addHandler(debug_handler)
-        
+
         openai_logger = logging.getLogger("openai")
         openai_logger.setLevel(logging.DEBUG)
         openai_logger.addHandler(debug_handler)
-        
+
         # Also add to main logger
         logger.addHandler(debug_handler)
         logger.info(f"Trace debug logging enabled, writing to {debug_log_file}")
-        
+
         # Legacy trace file support
         trace_file = Path.home() / "voicemode_trace.log"
         trace_logger = logging.getLogger("voicemode.trace")
@@ -465,7 +478,7 @@ def setup_logging() -> logging.Logger:
         trace_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
         trace_logger.addHandler(trace_handler)
         trace_logger.setLevel(logging.DEBUG)
-        
+
         def trace_calls(frame, event, arg):
             if event == 'call':
                 code = frame.f_code
@@ -474,10 +487,10 @@ def setup_logging() -> logging.Logger:
             elif event == 'exception':
                 trace_logger.debug(f"Exception: {arg}")
             return trace_calls
-        
+
         sys.settrace(trace_calls)
         logger.info(f"Trace debugging enabled, writing to: {trace_file}")
-    
+
     # Also log to file in debug mode
     if DEBUG:
         debug_log_file = Path.home() / "voicemode_debug.log"
@@ -485,14 +498,14 @@ def setup_logging() -> logging.Logger:
         file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
         logger.addHandler(file_handler)
         logger.info(f"Debug logging to file: {debug_log_file}")
-    
+
     # Suppress verbose binary data in HTTP logs
     if DEBUG:
         # Keep our debug logs but reduce HTTP client verbosity
         logging.getLogger("openai._base_client").setLevel(logging.INFO)
         logging.getLogger("httpcore").setLevel(logging.INFO)
         logging.getLogger("httpx").setLevel(logging.INFO)
-    
+
     return logger
 
 # ==================== DIRECTORY INITIALIZATION ====================

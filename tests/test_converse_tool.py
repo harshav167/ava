@@ -592,6 +592,53 @@ class TestErrorHandling:
 
         assert mock_stop.called
 
+    async def test_session_write_failure_stops_playback_and_cancels_session(self, mock_dj_ducker, monkeypatch):
+        """Session write failures should stop active playback under streamable HTTP."""
+        monkeypatch.setattr("voice_mode.tools.converse.CONCH_ENABLED", False)
+        child_cancelled = asyncio.Event()
+
+        class FakeRequest:
+            async def is_disconnected(self):
+                return False
+
+        class FakeRequestContext:
+            request = FakeRequest()
+
+        class FakeSession:
+            def __init__(self):
+                self.calls = 0
+
+            async def send_log_message(self, *args, **kwargs):
+                self.calls += 1
+                raise RuntimeError("stream closed")
+
+        class FakeContext:
+            def __init__(self):
+                self.request_context = FakeRequestContext()
+                self.session = FakeSession()
+                self.request_id = "req-123"
+
+        async def slow_run(*args, **kwargs):
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                child_cancelled.set()
+                raise
+
+        ctx = FakeContext()
+
+        with patch("voice_mode.tools.converse.ConverseSession") as MockSession, \
+             patch("voice_mode.tools.converse.stop_current_playback") as mock_stop:
+            instance = MockSession.return_value
+            instance.run = AsyncMock(side_effect=slow_run)
+
+            with pytest.raises(asyncio.CancelledError):
+                await _call_converse(message="hi", wait_for_response=False, ctx=ctx)
+
+        assert child_cancelled.is_set()
+        assert ctx.session.calls >= 1
+        assert mock_stop.called
+
     async def test_parent_cancellation_cancels_child_session_task(self, mock_dj_ducker, monkeypatch):
         """Cancelling the MCP coroutine should not leave ConverseSession running."""
         monkeypatch.setattr("voice_mode.tools.converse.CONCH_ENABLED", False)
@@ -616,6 +663,33 @@ class TestErrorHandling:
             with pytest.raises(asyncio.CancelledError):
                 await task
 
+        assert child_cancelled.is_set()
+        assert mock_stop.called
+
+    async def test_server_side_timeout_cancels_child_session_task(self, mock_dj_ducker, monkeypatch):
+        """The timeout parameter is a real server-side turn budget, not just docs."""
+        monkeypatch.setattr("voice_mode.tools.converse.CONCH_ENABLED", False)
+        child_cancelled = asyncio.Event()
+
+        async def slow_run(*args, **kwargs):
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                child_cancelled.set()
+                raise
+
+        with patch("voice_mode.tools.converse.ConverseSession") as MockSession, \
+             patch("voice_mode.tools.converse.stop_current_playback") as mock_stop:
+            instance = MockSession.return_value
+            instance.run = AsyncMock(side_effect=slow_run)
+
+            result = await _call_converse(
+                message="hi",
+                wait_for_response=False,
+                timeout=0.05,
+            )
+
+        assert "timed out" in result.lower()
         assert child_cancelled.is_set()
         assert mock_stop.called
 

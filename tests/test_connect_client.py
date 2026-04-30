@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from voice_mode.connect.client import ConnectClient, DeviceInfo, get_client
+from voice_mode.connect_registry import ConnectRegistry
 from voice_mode.connect.types import ConnectState
 from voice_mode.connect.users import UserManager
 
@@ -23,6 +24,12 @@ def user_manager(tmp_path):
 def client(user_manager):
     """Create a ConnectClient for testing."""
     return ConnectClient(user_manager)
+
+
+def test_connect_registry_zero_arg_constructor_returns_singleton():
+    instance = ConnectRegistry()
+
+    assert instance is get_client()
 
 
 class TestDeviceInfo:

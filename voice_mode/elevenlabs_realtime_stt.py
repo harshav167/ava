@@ -33,9 +33,11 @@ CHUNK_SAMPLES = int(SCRIBE_SAMPLE_RATE * CHUNK_DURATION_MS / 1000)
 # Timeout for session to start after WebSocket connects
 SESSION_START_TIMEOUT = 10.0
 
-# Silence detection defaults (matching Osaurus behavior)
-DEFAULT_SILENCE_THRESHOLD_SECS = 0.8  # Osaurus: 0.3-0.8s depending on sensitivity
-DEFAULT_VAD_THRESHOLD = 0.5  # Osaurus medium: 0.75 (inverted — higher = less sensitive)
+# Silence detection defaults
+DEFAULT_SILENCE_THRESHOLD_SECS = 0.8
+DEFAULT_VAD_THRESHOLD = 0.5
+ENERGY_SPEECH_RMS_THRESHOLD = 500.0
+INITIAL_NO_SPEECH_TIMEOUT_SECS = 10.0
 CACHE_DIR = Path.home() / ".voicemode" / "cache"
 LAST_RECORDING_RAW = CACHE_DIR / "last_recording.raw"
 LAST_RECORDING_WAV = CACHE_DIR / "last_recording.wav"
@@ -148,6 +150,14 @@ async def _batch_transcribe_cached_audio(
 ) -> Optional[dict]:
     cached_audio = _read_cached_audio()
     if cached_audio is None or len(cached_audio) == 0:
+        return None
+    audio_rms = float(np.sqrt(np.mean(cached_audio.astype(np.float32) ** 2)))
+    if audio_rms < ENERGY_SPEECH_RMS_THRESHOLD:
+        logger.info(
+            "Realtime STT %s — cached audio appears silent (rms=%.1f), skipping batch fallback",
+            reason,
+            audio_rms,
+        )
         return None
 
     try:
@@ -491,7 +501,9 @@ async def _stream_microphone_with_local_vad(
 
     # VAD state tracking
     speech_detected_ever = False
-    silence_start = None  # When silence began
+    energy_speech_detected_ever = False
+    silence_start = None  # When local VAD silence began
+    energy_silence_start = None  # When energy-based fallback silence began
     first_chunk = True  # Send previous_text with first chunk only
     last_commit_time = time.perf_counter()  # For periodic commits per ElevenLabs docs
     PERIODIC_COMMIT_SECS = 25.0  # ElevenLabs recommends committing every 20-30s
@@ -536,6 +548,49 @@ async def _stream_microphone_with_local_vad(
                 # Cache audio for crash resilience — if ElevenLabs dies, we can batch-transcribe
                 audio_cache.append(data.copy())
 
+                audio_flat = data.flatten()
+                audio_rms = float(np.sqrt(np.mean(audio_flat.astype(np.float32) ** 2)))
+                now_for_energy = time.perf_counter()
+                if audio_rms >= ENERGY_SPEECH_RMS_THRESHOLD:
+                    energy_speech_detected_ever = True
+                    energy_silence_start = None
+                elif energy_speech_detected_ever and energy_silence_start is None:
+                    energy_silence_start = now_for_energy
+
+                if (
+                    not disable_silence_detection
+                    and energy_speech_detected_ever
+                    and elapsed >= min_duration
+                    and energy_silence_start is not None
+                    and (now_for_energy - energy_silence_start) >= silence_threshold_secs
+                ):
+                    logger.info(
+                        "Energy VAD fallback: silence for %.1fs (threshold=%.1fs) — finalizing",
+                        now_for_energy - energy_silence_start,
+                        silence_threshold_secs,
+                    )
+                    try:
+                        if on_local_finalize:
+                            on_local_finalize()
+                        else:
+                            await connection.commit()
+                    except Exception as e:
+                        logger.error(f"Energy fallback commit failed: {e}")
+                    await asyncio.sleep(0.3)
+                    break
+
+                if (
+                    not disable_silence_detection
+                    and not speech_detected_ever
+                    and not energy_speech_detected_ever
+                    and elapsed >= max(min_duration, INITIAL_NO_SPEECH_TIMEOUT_SECS)
+                ):
+                    logger.info(
+                        "Realtime STT: no speech detected for %.1fs — ending listen turn",
+                        elapsed,
+                    )
+                    break
+
                 # Send base64-encoded PCM to ElevenLabs WebSocket (for transcription)
                 audio_b64 = base64.b64encode(data.tobytes()).decode("utf-8")
                 send_payload = {"audio_base_64": audio_b64}
@@ -567,7 +622,6 @@ async def _stream_microphone_with_local_vad(
 
                 # Run local Silero VAD on sub-chunks (512 samples each)
                 if vad is not None and not disable_silence_detection:
-                    audio_flat = data.flatten()
                     is_speech = False
 
                     # Process in 512-sample sub-chunks as Silero requires

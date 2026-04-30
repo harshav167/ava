@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Awaitable, Callable, Optional
@@ -43,6 +44,7 @@ class ConverseRequest:
     chime_enabled: Optional[bool]
     chime_leading_silence: Optional[float]
     chime_trailing_silence: Optional[float]
+    audio_ducking_enabled: bool
     save_audio: bool
     audio_dir: Optional[str]
     debug: bool
@@ -167,7 +169,10 @@ class ConverseSession:
                 result.tts_metrics = {"ttfa": 0, "generation": 0, "playback": 0, "total": 0}
                 result.tts_config = {"provider": "no-op", "voice": "none"}
             else:
-                with self.dj_ducker_factory():
+                ducking_context = (
+                    self.dj_ducker_factory() if request.audio_ducking_enabled else nullcontext()
+                )
+                with ducking_context:
                     result.tts_success, result.tts_metrics, result.tts_config = await ports.tts_with_failover(
                         message=request.message,
                         voice=request.voice,

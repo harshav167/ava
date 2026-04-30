@@ -55,6 +55,7 @@ from voice_mode.config import (  # noqa: E402
     SAVE_AUDIO,
     AUDIO_DIR,
     AUDIO_FEEDBACK_ENABLED,
+    AUDIO_DUCKING_ENABLED,
     save_transcription,
     SAVE_TRANSCRIPTIONS,
     DISABLE_SILENCE_DETECTION,
@@ -73,6 +74,7 @@ from voice_mode.config import (  # noqa: E402
     MP3_BITRATE,
     CONCH_ENABLED,
     CONCH_TIMEOUT,
+    CONVERSE_TIMEOUT,
     CONCH_CHECK_INTERVAL,
 )
 import voice_mode.config  # noqa: E402
@@ -140,11 +142,13 @@ async def _ctx_progress(
 
 
 async def _watch_client_disconnect(ctx: Optional[Context]) -> None:
-    """Block until the HTTP client disconnects, then stop active playback.
+    """Block until the MCP client disconnects, then stop active playback.
 
     FastMCP cancellation is not guaranteed to interrupt a blocking worker thread
     immediately. This watcher gives HTTP transports a direct path from client
-    disconnect to ffplay termination.
+    disconnect to ffplay termination. Under streamable HTTP, the original POST
+    can outlive the real session, so also treat failed session writes as a
+    disconnect signal.
     """
     if ctx is None:
         await asyncio.Future()
@@ -159,15 +163,43 @@ async def _watch_client_disconnect(ctx: Optional[Context]) -> None:
 
             request = get_http_request()
 
-    if request is None or not hasattr(request, "is_disconnected"):
+    session = None
+    with contextlib.suppress(Exception):
+        session = ctx.session
+
+    request_supports_disconnect = request is not None and hasattr(request, "is_disconnected")
+    if not request_supports_disconnect and session is None:
         await asyncio.Future()
         return
 
+    last_session_heartbeat = 0.0
+    heartbeat_interval = 1.0
+
     while True:
-        if await request.is_disconnected():
+        if request_supports_disconnect and await request.is_disconnected():
             logger.warning("MCP client disconnected — stopping active playback")
             stop_current_playback()
             return
+
+        if session is not None:
+            now = time.monotonic()
+            if now - last_session_heartbeat >= heartbeat_interval:
+                related_request_id = None
+                with contextlib.suppress(Exception):
+                    related_request_id = ctx.request_id
+                try:
+                    await session.send_log_message(
+                        level="debug",
+                        data="converse-playback-heartbeat",
+                        logger="voice_mode.tools.converse",
+                        related_request_id=related_request_id,
+                    )
+                except Exception:
+                    logger.warning("MCP session write failed — stopping active playback")
+                    stop_current_playback()
+                    return
+                last_session_heartbeat = now
+
         await asyncio.sleep(0.1)
 
 
@@ -1201,6 +1233,7 @@ def _build_converse_request(
         chime_enabled=chime_enabled,
         chime_leading_silence=chime_leading_silence,
         chime_trailing_silence=chime_trailing_silence,
+        audio_ducking_enabled=getattr(settings, "audio_ducking_enabled", AUDIO_DUCKING_ENABLED),
         save_audio=SAVE_AUDIO,
         audio_dir=str(AUDIO_DIR) if SAVE_AUDIO and AUDIO_DIR else None,
         debug=DEBUG,
@@ -1254,7 +1287,7 @@ async def converse(
     wait_for_response: Union[bool, str] = True,
     listen_duration_max: float = 300.0,
     listen_duration_min: float = 5.0,
-    timeout: float = 300.0,
+    timeout: float = 600.0,
     voice: Optional[str] = None,
     tts_provider: Optional[str] = None,
     tts_model: Optional[str] = None,
@@ -1285,14 +1318,15 @@ async def converse(
     • vad_aggressiveness (0-3, default: 1): Voice detection strictness. 0=most tolerant of pauses, 3=most strict
     • listen_duration_max (number, default: 300): Max listen time in SECONDS (300 = 5 minutes)
     • listen_duration_min (number, default: 5.0): Min recording in SECONDS before silence detection kicks in
-    • timeout (number, default: 300): MCP call timeout in SECONDS. MUST be >= listen_duration_max.
+    • timeout (number, default: 600): Server-side total turn timeout in SECONDS.
     • metrics_level ("minimal"|"summary"|"verbose"): Output detail level
     • wait_for_conch (bool, default: true): Auto-queues behind another speaker. No need to set this.
 
-    CRITICAL — TIMEOUT MUST MATCH LISTEN DURATION:
-    The timeout parameter controls when the MCP call times out. If timeout < listen_duration_max,
-    the call will time out before the user finishes speaking. ALWAYS set timeout >= listen_duration_max.
-    Both are in SECONDS. Default is 300 seconds (5 minutes) for both.
+    CRITICAL — TIMEOUT IS TOTAL TURN BUDGET:
+    The timeout parameter bounds the whole server-side turn: TTS generation, playback,
+    chime, listening, transcription, and cleanup. It must be larger than listen_duration_max
+    whenever wait_for_response=true. Default is 600 seconds (10 minutes), giving the
+    default 300-second listen window room for long TTS before listening starts.
 
     WHEN USER GETS CUT OFF:
     Increase listen_duration_min to 10, lower vad_aggressiveness to 0, or set disable_silence_detection=true.
@@ -1383,6 +1417,22 @@ async def converse(
             or vad_aggressiveness > 3
         ):
             return f"Error: vad_aggressiveness must be an integer between 0 and 3 (got {vad_aggressiveness})"
+
+    if timeout is None:
+        timeout = CONVERSE_TIMEOUT
+    else:
+        try:
+            timeout = float(timeout)
+        except (TypeError, ValueError):
+            return f"❌ Error: timeout must be a number (got '{timeout}')"
+    if timeout <= 0:
+        return "❌ Error: timeout must be positive"
+    if wait_for_response and timeout <= listen_duration_max:
+        logger.warning(
+            "Converse timeout %.1fs is not larger than listen_duration_max %.1fs; long TTS may exhaust the tool budget",
+            timeout,
+            listen_duration_max,
+        )
 
     # Validate duration parameters
     if wait_for_response:
@@ -1576,8 +1626,21 @@ async def converse(
             try:
                 done, _ = await asyncio.wait(
                     {session_task, disconnect_watcher},
+                    timeout=timeout,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
+                if not done:
+                    logger.warning(
+                        "Converse server-side timeout after %.1fs — cancelling session",
+                        timeout,
+                    )
+                    stop_current_playback()
+                    session_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await session_task
+                    raise asyncio.TimeoutError(
+                        f"Converse timed out after {timeout:.1f}s before the turn completed"
+                    )
                 if disconnect_watcher in done and not session_task.done():
                     stop_current_playback()
                     session_task.cancel()

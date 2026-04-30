@@ -19,9 +19,11 @@ _client_api_key: Optional[str] = None
 
 def get_client(api_key: str) -> ElevenLabs:
     """Get or create singleton ElevenLabs client."""
+    from .config import ELEVENLABS_HTTP_TIMEOUT
+
     global _client, _client_api_key
     if _client is None or _client_api_key != api_key:
-        _client = ElevenLabs(api_key=api_key)
+        _client = ElevenLabs(api_key=api_key, timeout=ELEVENLABS_HTTP_TIMEOUT)
         _client_api_key = api_key
     return _client
 

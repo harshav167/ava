@@ -18,9 +18,21 @@ warnings.warn(
 )
 
 # Re-export symbols that consumers may still reference
-from voice_mode.connect.client import ConnectClient as ConnectRegistry  # noqa: F401, E402
-from voice_mode.connect.client import DeviceInfo  # noqa: F401, E402
+from voice_mode.connect.client import ConnectClient, DeviceInfo  # noqa: F401, E402
 from voice_mode.connect.client import get_client  # noqa: E402
+
+
+def ConnectRegistry(*args, **kwargs):  # noqa: N802
+    """Backward-compatible zero-arg constructor for deprecated callers.
+
+    Historically, ConnectRegistry() returned the module singleton and accepted
+    no constructor arguments. Keep that behavior while allowing advanced callers
+    to explicitly construct ConnectClient if they pass arguments.
+    """
+    if not args and not kwargs:
+        return get_client()
+    return ConnectClient(*args, **kwargs)
+
 
 # Singleton shim — delegates to the new get_client()
 connect_registry = get_client()

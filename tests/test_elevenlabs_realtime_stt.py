@@ -47,11 +47,11 @@ class FakeConnection:
         self.closed = True
 
 
-def _mock_sounddevice():
+def _mock_sounddevice(sample_value: int = 0):
     """Return a mock sounddevice module that won't touch real hardware."""
     mock_sd = MagicMock()
     mock_stream = MagicMock()
-    mock_stream.read.return_value = (np.zeros(1600, dtype="int16"), False)
+    mock_stream.read.return_value = (np.full(1600, sample_value, dtype="int16"), False)
     mock_sd.InputStream.return_value = mock_stream
     return mock_sd
 
@@ -403,7 +403,7 @@ class TestRealtimeSTTErrors:
             return conn
 
         async def fake_stream(connection, *args, **kwargs):
-            audio = np.zeros(16000 * 12, dtype=np.int16)
+            audio = np.full(16000 * 12, 1200, dtype=np.int16)
             from voice_mode import elevenlabs_realtime_stt as mod
 
             mod._write_cached_audio_files([audio])
@@ -502,7 +502,7 @@ class TestRealtimeSTTErrors:
             return {"text": "recovered from cached audio"}
 
         with (
-            patch("voice_mode.elevenlabs_realtime_stt.sd", _mock_sounddevice()),
+            patch("voice_mode.elevenlabs_realtime_stt.sd", _mock_sounddevice(sample_value=1200)),
             patch("elevenlabs.client.ElevenLabs", return_value=mock_client),
             patch("voice_mode.elevenlabs_realtime_stt.CACHE_DIR", tmp_path),
             patch("voice_mode.elevenlabs_realtime_stt.LAST_RECORDING_RAW", tmp_path / "last_recording.raw"),
@@ -526,3 +526,100 @@ class TestRealtimeSTTErrors:
         assert result["audio_file"].endswith("last_recording.wav")
         assert captured["name"] == "cached_recording.wav"
         assert captured["frames"] > 16000
+
+    async def test_energy_fallback_finalizes_when_silero_misses_speech(self, tmp_path):
+        """Energy fallback should stop listening if Silero never detects the speech."""
+        conn = FakeConnection()
+
+        async def fake_connect(opts):
+            async def _fire():
+                await asyncio.sleep(0.05)
+                conn.fire("session_started", {})
+                await asyncio.sleep(0.35)
+                conn.fire("committed_transcript", {"text": "energy fallback transcript"})
+            asyncio.create_task(_fire())
+            return conn
+
+        class EnergyThenSilenceStream:
+            def __init__(self, *args, **kwargs):
+                self.reads = 0
+
+            def start(self):
+                pass
+
+            def read(self, frames):
+                self.reads += 1
+                if self.reads <= 3:
+                    return (np.full(frames, 3000, dtype=np.int16), False)
+                return (np.zeros(frames, dtype=np.int16), False)
+
+            def stop(self):
+                pass
+
+            def close(self):
+                pass
+
+        mock_sd = MagicMock()
+        mock_sd.InputStream.side_effect = EnergyThenSilenceStream
+        mock_client = MagicMock()
+        mock_client.speech_to_text.realtime.connect = AsyncMock(side_effect=fake_connect)
+
+        with (
+            patch("voice_mode.elevenlabs_realtime_stt.sd", mock_sd),
+            patch("voice_mode.elevenlabs_realtime_stt.get_silero_vad", return_value=lambda chunk, rate: 0.0),
+            patch("elevenlabs.client.ElevenLabs", return_value=mock_client),
+            patch("voice_mode.elevenlabs_realtime_stt.CACHE_DIR", tmp_path),
+            patch("voice_mode.elevenlabs_realtime_stt.LAST_RECORDING_RAW", tmp_path / "last_recording.raw"),
+            patch("voice_mode.elevenlabs_realtime_stt.LAST_RECORDING_WAV", tmp_path / "last_recording.wav"),
+        ):
+            from voice_mode.elevenlabs_realtime_stt import realtime_transcribe
+
+            result = await asyncio.wait_for(
+                realtime_transcribe(
+                    api_key="test-key",
+                    max_duration=30.0,
+                    min_duration=0.1,
+                    vad_silence_threshold=0.2,
+                ),
+                timeout=5.0,
+            )
+
+        assert result["text"] == "energy fallback transcript"
+        assert result["metrics"]["stop_reason"] == "local_vad_silence"
+
+    async def test_initial_silence_escape_prevents_runaway_listen(self, tmp_path):
+        """A broken/no-input VAD path should not periodic-commit until max_duration."""
+        conn = FakeConnection()
+
+        async def fake_connect(opts):
+            async def _fire():
+                await asyncio.sleep(0.05)
+                conn.fire("session_started", {})
+            asyncio.create_task(_fire())
+            return conn
+
+        mock_client = MagicMock()
+        mock_client.speech_to_text.realtime.connect = AsyncMock(side_effect=fake_connect)
+
+        with (
+            patch("voice_mode.elevenlabs_realtime_stt.sd", _mock_sounddevice()),
+            patch("voice_mode.elevenlabs_realtime_stt.get_silero_vad", return_value=lambda chunk, rate: 0.0),
+            patch("elevenlabs.client.ElevenLabs", return_value=mock_client),
+            patch("voice_mode.elevenlabs_realtime_stt.INITIAL_NO_SPEECH_TIMEOUT_SECS", 0.3),
+            patch("voice_mode.elevenlabs_realtime_stt.CACHE_DIR", tmp_path),
+            patch("voice_mode.elevenlabs_realtime_stt.LAST_RECORDING_RAW", tmp_path / "last_recording.raw"),
+            patch("voice_mode.elevenlabs_realtime_stt.LAST_RECORDING_WAV", tmp_path / "last_recording.wav"),
+        ):
+            from voice_mode.elevenlabs_realtime_stt import realtime_transcribe
+
+            result = await asyncio.wait_for(
+                realtime_transcribe(
+                    api_key="test-key",
+                    max_duration=30.0,
+                    min_duration=0.1,
+                ),
+                timeout=5.0,
+            )
+
+        assert result["error_type"] == "no_speech"
+        assert {"commit": True} in conn.sent_chunks

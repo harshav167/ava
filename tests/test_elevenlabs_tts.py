@@ -49,6 +49,18 @@ def _tts_patches(mock_client):
 class TestElevenLabsTTSBasic:
     """Basic TTS call paths."""
 
+    def test_elevenlabs_client_uses_configured_http_timeout(self, monkeypatch):
+        """The SDK client should not silently rely on its own default timeout."""
+        monkeypatch.setattr("voice_mode.config.ELEVENLABS_HTTP_TIMEOUT", 300.0)
+        import voice_mode.elevenlabs_client as mod
+
+        mod._client = None
+        mod._client_api_key = None
+        with patch("voice_mode.elevenlabs_client.ElevenLabs") as MockElevenLabs:
+            mod.get_client("test-key")
+
+        MockElevenLabs.assert_called_once_with(api_key="test-key", timeout=300.0)
+
     @patch("voice_mode.elevenlabs_tts_stt.ELEVENLABS_TTS_MODEL", "eleven_v3")
     @patch("voice_mode.elevenlabs_tts_stt.ELEVENLABS_TTS_VOICE", "test-voice-id")
     @patch("voice_mode.elevenlabs_tts_stt.ELEVENLABS_API_KEY", "test-key")
@@ -599,6 +611,7 @@ class TestSpeechServiceSpeakBoundary:
         assert service.options.text == "hello"
         assert service.options.voice == "voice-b"
         assert service.options.model == "eleven_v3"
+        assert service.options.base_url == "elevenlabs://tts"
         assert service.options.speed == 1.1
 
 
@@ -640,6 +653,53 @@ class TestProviderCompatibilityBoundary:
         assert model == "eleven_v3"
         assert selected_endpoint is endpoint
         get_provider.assert_called_once()
+
+    async def test_speech_service_respects_requested_base_url_over_registry_default(self):
+        from voice_mode.provider_discovery import EndpointInfo
+        from voice_mode.voice_provider import SpeakOptions, SpeechService
+
+        preferred = EndpointInfo(
+            base_url="custom://tts",
+            models=["eleven_v3"],
+            voices=["voice-a"],
+            provider_type="elevenlabs",
+        )
+        fallback = EndpointInfo(
+            base_url="elevenlabs://tts",
+            models=["eleven_v3"],
+            voices=["voice-a"],
+            provider_type="elevenlabs",
+        )
+
+        class FakeRegistry:
+            async def initialize(self):
+                pass
+
+            def get_endpoints(self, service_type):
+                return [fallback, preferred] if service_type == "tts" else []
+
+            def find_endpoint_with_voice(self, voice):
+                return fallback
+
+            def find_endpoint_with_model(self, service_type, model):
+                return fallback if service_type == "tts" and model == "eleven_v3" else None
+
+        class FakeProvider:
+            def __init__(self):
+                self.tts_kwargs = None
+
+            async def tts(self, **kwargs):
+                self.tts_kwargs = kwargs
+                return True, {"generation": 1}, {"provider": "elevenlabs"}
+
+        provider = FakeProvider()
+        service = SpeechService(provider=provider, registry=FakeRegistry())
+
+        await service.speak(
+            SpeakOptions(text="hello", voice="voice-a", model="eleven_v3", base_url="custom://tts")
+        )
+
+        assert provider.tts_kwargs["base_url"] == "custom://tts"
 
     async def test_provider_discovery_selects_configured_tts_endpoint(self):
         from voice_mode.provider_discovery import ProviderRegistry

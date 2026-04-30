@@ -26,23 +26,44 @@ logger = logging.getLogger("voicemode")
 _playback_process_lock = threading.Lock()
 _current_playback_cancel_event: threading.Event | None = None
 _current_playback_process: subprocess.Popen | None = None
+_active_playback_cancel_events: set[threading.Event] = set()
+_active_playback_processes: set[subprocess.Popen] = set()
 
 
-def stop_current_playback() -> None:
-    """Stop any active ffplay process started by ElevenLabs TTS."""
+def _register_playback_event(cancel_event: threading.Event) -> None:
+    """Track a TTS worker so later MCP turns can stop orphaned playback."""
+    global _current_playback_cancel_event
+    with _playback_process_lock:
+        _active_playback_cancel_events.add(cancel_event)
+        _current_playback_cancel_event = cancel_event
+
+
+def _unregister_playback_event(cancel_event: threading.Event) -> None:
+    global _current_playback_cancel_event
+    with _playback_process_lock:
+        _active_playback_cancel_events.discard(cancel_event)
+        if _current_playback_cancel_event is cancel_event:
+            _current_playback_cancel_event = None
+
+
+def _register_playback_process(proc: subprocess.Popen, cancel_event: threading.Event) -> None:
     global _current_playback_process, _current_playback_cancel_event
     with _playback_process_lock:
-        proc = _current_playback_process
-        cancel_event = _current_playback_cancel_event
-        _current_playback_process = None
-        _current_playback_cancel_event = None
+        _active_playback_processes.add(proc)
+        _active_playback_cancel_events.add(cancel_event)
+        _current_playback_process = proc
+        _current_playback_cancel_event = cancel_event
 
-    if cancel_event is not None:
-        cancel_event.set()
 
-    if proc is None:
-        return
+def _unregister_playback_process(proc: subprocess.Popen) -> None:
+    global _current_playback_process
+    with _playback_process_lock:
+        _active_playback_processes.discard(proc)
+        if _current_playback_process is proc:
+            _current_playback_process = None
 
+
+def _terminate_playback_process(proc: subprocess.Popen) -> None:
     try:
         if proc.poll() is None:
             os.killpg(proc.pid, signal.SIGTERM)
@@ -54,7 +75,39 @@ def stop_current_playback() -> None:
     except ProcessLookupError:
         pass
     except Exception as e:
-        logger.warning(f"Failed to stop active playback: {e}")
+        logger.warning(f"Failed to stop active playback process group: {e}")
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=2)
+        except Exception as fallback_error:
+            logger.warning(f"Failed to stop active playback process: {fallback_error}")
+
+
+def stop_current_playback() -> None:
+    """Stop all active ffplay processes and TTS workers started by ElevenLabs TTS."""
+    global _current_playback_process, _current_playback_cancel_event
+    with _playback_process_lock:
+        procs = set(_active_playback_processes)
+        events = set(_active_playback_cancel_events)
+        if _current_playback_process is not None:
+            procs.add(_current_playback_process)
+        if _current_playback_cancel_event is not None:
+            events.add(_current_playback_cancel_event)
+        _active_playback_processes.clear()
+        _active_playback_cancel_events.clear()
+        _current_playback_process = None
+        _current_playback_cancel_event = None
+
+    for cancel_event in events:
+        cancel_event.set()
+
+    for proc in procs:
+        _terminate_playback_process(proc)
 
 
 async def elevenlabs_tts(
@@ -72,9 +125,7 @@ async def elevenlabs_tts(
     logger.info(f"elevenlabs_tts called with: text='{text[:50]}...', voice={voice}, model={model}")
     logger.info(f"kwargs: {kwargs}")
     playback_cancel_event = threading.Event()
-    global _current_playback_cancel_event
-    with _playback_process_lock:
-        _current_playback_cancel_event = playback_cancel_event
+    _register_playback_event(playback_cancel_event)
 
     try:
         from .elevenlabs_client import get_client
@@ -122,7 +173,6 @@ async def elevenlabs_tts(
 
         def _generate_and_play(chunks):
             """Run blocking ElevenLabs convert+play in a thread."""
-            global _current_playback_process, _current_playback_cancel_event
             for i, chunk_text in enumerate(chunks):
                 if playback_cancel_event.is_set():
                     logger.info("ElevenLabs TTS playback cancelled before next chunk")
@@ -190,18 +240,11 @@ async def elevenlabs_tts(
                             stderr=subprocess.DEVNULL,
                             start_new_session=True,  # Isolate: signals won't kill parent
                         )
-                        with _playback_process_lock:
-                            _current_playback_process = proc
-                            _current_playback_cancel_event = playback_cancel_event
+                        _register_playback_process(proc, playback_cancel_event)
                         while proc.poll() is None:
                             if playback_cancel_event.is_set():
                                 logger.info(f"ElevenLabs TTS chunk {i+1} cancelled — terminating ffplay")
-                                os.killpg(proc.pid, signal.SIGTERM)
-                                try:
-                                    proc.wait(timeout=2)
-                                except subprocess.TimeoutExpired:
-                                    os.killpg(proc.pid, signal.SIGKILL)
-                                    proc.wait(timeout=2)
+                                _terminate_playback_process(proc)
                                 break
                             try:
                                 proc.wait(timeout=0.1)
@@ -219,9 +262,8 @@ async def elevenlabs_tts(
                             except Exception:
                                 pass
                     finally:
-                        with _playback_process_lock:
-                            if _current_playback_process is proc:
-                                _current_playback_process = None
+                        if proc is not None:
+                            _unregister_playback_process(proc)
                         os.unlink(tmp.name)
 
                 except Exception as e:
@@ -237,9 +279,7 @@ async def elevenlabs_tts(
         if playback_cancel_event.is_set():
             raise asyncio.CancelledError()
 
-        with _playback_process_lock:
-            if _current_playback_cancel_event is playback_cancel_event:
-                _current_playback_cancel_event = None
+        _unregister_playback_event(playback_cancel_event)
 
         # If no chunks were successfully played, report failure
         if not chunks_played:
@@ -267,6 +307,7 @@ async def elevenlabs_tts(
         raise
 
     except Exception as e:
+        _unregister_playback_event(playback_cancel_event)
         logger.error(f"ElevenLabs TTS failed: {e}")
         error_config = {
             "error_type": "all_providers_failed",

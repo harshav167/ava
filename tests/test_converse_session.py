@@ -34,6 +34,7 @@ def _request(**overrides) -> ConverseRequest:
         "chime_enabled": True,
         "chime_leading_silence": None,
         "chime_trailing_silence": None,
+        "audio_ducking_enabled": True,
         "save_audio": False,
         "audio_dir": None,
         "debug": False,
@@ -162,6 +163,39 @@ async def test_run_speak_only_ducks_media_exactly_once(monkeypatch):
     assert result.mcp_success is True
     ports.tts_with_failover.assert_awaited_once()
     assert simulate_media_key.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_run_speak_only_skips_media_ducking_when_disabled(monkeypatch):
+    from voice_mode.audio_ducker import DJDucker, is_ducking_active
+
+    monkeypatch.setattr(
+        "voice_mode.audio_ducker._is_app_playing",
+        lambda name: name == "Spotify",
+    )
+    simulate_media_key = MagicMock()
+    monkeypatch.setattr(
+        "voice_mode.audio_ducker._simulate_media_play_pause",
+        simulate_media_key,
+    )
+
+    async def tts_without_session_ducking(**kwargs):
+        assert is_ducking_active() is False
+        return True, {"ttfa": 0.01, "generation": 0.02, "playback": 0.03}, {"provider": "elevenlabs"}
+
+    session = ConverseSession(
+        audio_operation_lock=_AsyncLock(),
+        dj_ducker_factory=DJDucker,
+        event_logger=MagicMock(),
+    )
+    request = _request(wait_for_response=False, audio_ducking_enabled=False)
+    ports = _ports(tts_with_failover=AsyncMock(side_effect=tts_without_session_ducking))
+
+    result = await session.run(request, ports)
+
+    assert result.mcp_success is True
+    ports.tts_with_failover.assert_awaited_once()
+    simulate_media_key.assert_not_called()
 
 
 @pytest.mark.asyncio
