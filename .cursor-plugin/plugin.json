@@ -1,7 +1,7 @@
 {
   "name": "voicemode",
   "displayName": "VoiceMode",
-  "version": "10.0.1",
+  "version": "10.0.2",
   "description": "Voice conversations with AI coding assistants using ElevenLabs TTS/STT. HTTP server on port 8765 with local Silero VAD and manual commit mode.",
   "author": {
     "name": "Harsha",

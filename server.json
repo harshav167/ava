@@ -7,7 +7,7 @@
     "url": "https://github.com/mbailey/voicemode",
     "source": "github"
   },
-  "version": "10.0.1",
+  "version": "10.0.2",
   "remotes": [
     {
       "type": "streamable-http",
@@ -19,7 +19,7 @@
       "registry_type": "pypi",
       "registry_base_url": "https://pypi.org",
       "identifier": "voice-mode",
-      "version": "10.0.1",
+      "version": "10.0.2",
       "transport": {
         "type": "streamable-http",
         "url": "http://127.0.0.1:8765/mcp"
